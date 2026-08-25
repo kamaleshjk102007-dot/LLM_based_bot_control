@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel, ConfigDict
 
-from app.commands.models import Action, EntityReference, UniversalCommand
+from app.commands.models import Action, UniversalCommand
 from app.commands.validator import CommandValidationError, validate_command
 from app.config.settings import Settings
 
@@ -69,6 +69,22 @@ class GeminiCommandError(RuntimeError):
     """Raised when Gemini cannot safely produce a usable command."""
 
 
+def _safe_client_error(exc: errors.ClientError) -> str:
+    """Classify provider errors without exposing keys or provider response bodies."""
+
+    code = getattr(exc, "code", None)
+    reasons = {
+        400: "Gemini rejected the request or API key.",
+        401: "Gemini authentication failed. Check GEMINI_API_KEY.",
+        403: "Gemini denied access. Check the API key and API permissions.",
+        404: "The configured Gemini model is unavailable.",
+        429: "Gemini quota or rate limit was exceeded.",
+    }
+    reason = reasons.get(code, "Gemini returned a client error.")
+    suffix = f" (HTTP {code})" if code is not None else ""
+    return f"{reason}{suffix}"
+
+
 class GeminiCommandClient:
     def __init__(self, settings: Settings, client: Any | None = None) -> None:
         self._settings = settings
@@ -95,6 +111,8 @@ class GeminiCommandClient:
             )
         except TimeoutError as exc:
             raise GeminiCommandError("Gemini request timed out.") from exc
+        except errors.ClientError as exc:
+            raise GeminiCommandError(_safe_client_error(exc)) from exc
         except Exception as exc:
             raise GeminiCommandError(f"Gemini API request failed: {type(exc).__name__}") from exc
 
