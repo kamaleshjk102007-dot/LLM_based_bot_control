@@ -26,7 +26,8 @@ class RobotRegistry:
 
     def register(self, robot: Robot | dict) -> Robot:
         try:
-            validated = robot if isinstance(robot, Robot) else Robot.model_validate(robot)
+            payload = robot.model_dump() if isinstance(robot, Robot) else robot
+            validated = Robot.model_validate(payload)
         except (ValidationError, TypeError, ValueError) as exc:
             raise RobotRegistryError(f"Invalid robot: {exc}") from exc
         if validated.robot_id in self._robots:
