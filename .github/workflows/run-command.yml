@@ -1,0 +1,44 @@
+name: Run Universal Robot Command
+
+on:
+  workflow_dispatch:
+    inputs:
+      instruction:
+        description: Natural-language robot instruction
+        required: true
+        type: string
+      gemini_model:
+        description: Gemini model
+        required: true
+        default: gemini-2.5-flash
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  generate-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ inputs.gemini_model }}
+      INSTRUCTION: ${{ inputs.instruction }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Verify Gemini secret
+        shell: bash
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::Add GEMINI_API_KEY in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Convert and validate instruction
+        shell: bash
+        run: printf '%s\n' "$INSTRUCTION" | python -m app.main
