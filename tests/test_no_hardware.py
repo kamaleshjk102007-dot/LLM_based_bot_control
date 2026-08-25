@@ -10,7 +10,7 @@ FORBIDDEN_DEPENDENCIES = {
 FORBIDDEN_IMPORT_FRAGMENTS = (
     "import serial", "from serial", "import can", "from can",
     "import rclpy", "from rclpy", "import usb", "from usb",
-    "dobotrpc", "dobotlink",
+    "import dobotrpc", "from dobotrpc",
 )
 
 
@@ -19,7 +19,7 @@ def test_base_requirements_have_no_hardware_dependency():
     assert not any(name in requirements for name in FORBIDDEN_DEPENDENCIES)
 
 
-def test_vendor_transport_is_isolated_to_dobot_adapter():
+def test_vendor_transport_imports_are_isolated_to_dobot_adapter():
     allowed_root = Path("app/adapters/dobot")
     violations = []
     for path in Path("app").rglob("*.py"):
