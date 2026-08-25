@@ -6,8 +6,9 @@ from typing import Any
 
 from google import genai
 from google.genai import types
+from pydantic import BaseModel, ConfigDict
 
-from app.commands.models import UniversalCommand
+from app.commands.models import Action, EntityReference, UniversalCommand
 from app.commands.validator import CommandValidationError, validate_command
 from app.config.settings import Settings
 
@@ -21,12 +22,47 @@ DOBOT commands, ROS commands, CAN frames, serial commands, vendor API calls, phy
 coordinates, or invented robot capabilities.
 
 Interpret intent conservatively. Never invent a robot ID, coordinate, object position, or
-missing capability. Omit optional information that the user did not provide. If a request
-is ambiguous, unsafe, unsupported, or cannot be represented by the schema, do not guess.
+missing capability. Use null for provider-schema fields the user did not specify. If a
+request is ambiguous, unsafe, unsupported, or cannot be represented by the schema, do not
+guess.
 
 Supported actions: MOVE, ROTATE, STOP, HOME, PICK, PLACE, GRIP, RELEASE, NAVIGATE,
 GET_STATUS. Return only schema-conforming structured data.
 """
+
+
+class GeminiEntityDraft(BaseModel):
+    """Provider schema with no defaults; the Gemini API rejects schema defaults."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str | None
+    id: str | None
+    color: str | None
+    name: str | None
+
+
+class GeminiTaskDraft(BaseModel):
+    """Required-but-nullable fields keep Gemini's schema provider-compatible."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Action
+    object: GeminiEntityDraft | None
+    target: GeminiEntityDraft | None
+    position: str | None
+    direction: str | None
+    distance: float | None
+    angle: float | None
+    unit: str | None
+
+
+class GeminiCommandDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: str
+    robot_id: str | None
+    tasks: list[GeminiTaskDraft]
 
 
 class GeminiCommandError(RuntimeError):
@@ -53,7 +89,7 @@ class GeminiCommandClient:
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",
-                    response_schema=UniversalCommand,
+                    response_schema=GeminiCommandDraft,
                     temperature=0,
                 ),
             )
@@ -66,6 +102,9 @@ class GeminiCommandClient:
         raw = getattr(response, "text", None)
         if parsed is None and not raw:
             raise GeminiCommandError("Gemini returned an empty or malformed response.")
+
+        if isinstance(parsed, BaseModel):
+            parsed = parsed.model_dump(exclude_none=True)
 
         try:
             # Always perform a second application-side validation, even when the SDK parsed it.
