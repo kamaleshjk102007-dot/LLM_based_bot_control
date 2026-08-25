@@ -162,7 +162,7 @@ python -m app.main --mode real --dobot-test release
 
 HOME, MOVE, GRIP, and RELEASE print the exact prepared operation and execute
 only when the supervising operator types `YES`. Connection and status tests
-do not move the robot. Simulation never imports DobotRPC or contacts DobotLink.
+do not move the robot. Simulation never opens a WebSocket or contacts DobotLink.
 
 ## Run simulation on GitHub
 
