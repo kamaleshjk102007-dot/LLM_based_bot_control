@@ -6,9 +6,9 @@ from typing import Any
 
 from google import genai
 from google.genai import errors, types
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
-from app.commands.models import Action, UniversalCommand
+from app.commands.models import UniversalCommand
 from app.commands.validator import CommandValidationError, validate_command
 from app.config.settings import Settings
 
@@ -22,47 +22,54 @@ DOBOT commands, ROS commands, CAN frames, serial commands, vendor API calls, phy
 coordinates, or invented robot capabilities.
 
 Interpret intent conservatively. Never invent a robot ID, coordinate, object position, or
-missing capability. Use null for provider-schema fields the user did not specify. If a
-request is ambiguous, unsafe, unsupported, or cannot be represented by the schema, do not
-guess.
+missing capability. Omit optional fields the user did not specify. If a request is
+ambiguous, unsafe, unsupported, or cannot be represented by the schema, do not guess.
 
 Supported actions: MOVE, ROTATE, STOP, HOME, PICK, PLACE, GRIP, RELEASE, NAVIGATE,
 GET_STATUS. Return only schema-conforming structured data.
 """
 
-
-class GeminiEntityDraft(BaseModel):
-    """Provider schema with no defaults; the Gemini API rejects schema defaults."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    type: str | None
-    id: str | None
-    color: str | None
-    name: str | None
-
-
-class GeminiTaskDraft(BaseModel):
-    """Required-but-nullable fields keep Gemini's schema provider-compatible."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    action: Action
-    object: GeminiEntityDraft | None
-    target: GeminiEntityDraft | None
-    position: str | None
-    direction: str | None
-    distance: float | None
-    angle: float | None
-    unit: str | None
+_UNSUPPORTED_PROVIDER_KEYWORDS = {
+    "additionalProperties",
+    "default",
+    "exclusiveMinimum",
+    "maximum",
+    "minItems",
+    "minLength",
+    "pattern",
+    "title",
+}
 
 
-class GeminiCommandDraft(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+def _simplify_json_schema(node: Any) -> Any:
+    """Reduce Pydantic JSON Schema to Gemini's portable structured-output subset."""
 
-    version: str
-    robot_id: str | None
-    tasks: list[GeminiTaskDraft]
+    if isinstance(node, list):
+        return [_simplify_json_schema(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    any_of = node.get("anyOf")
+    if isinstance(any_of, list):
+        non_null = [
+            option
+            for option in any_of
+            if not (isinstance(option, dict) and option.get("type") == "null")
+        ]
+        if len(non_null) == 1:
+            return _simplify_json_schema(non_null[0])
+
+    return {
+        key: _simplify_json_schema(value)
+        for key, value in node.items()
+        if key not in _UNSUPPORTED_PROVIDER_KEYWORDS
+    }
+
+
+def gemini_response_json_schema() -> dict[str, Any]:
+    """Derive the provider schema from the authoritative Pydantic model."""
+
+    return _simplify_json_schema(UniversalCommand.model_json_schema())
 
 
 class GeminiCommandError(RuntimeError):
@@ -77,7 +84,7 @@ def _safe_client_error(exc: errors.ClientError) -> str:
 
     if "api key not valid" in message or "api_key_invalid" in message:
         reason = "GEMINI_API_KEY is invalid. Replace the GitHub Actions secret."
-    elif "schema" in message or "invalid argument" in message:
+    elif "schema" in message:
         reason = "Gemini rejected the structured-output request schema."
     else:
         reasons = {
@@ -113,7 +120,7 @@ class GeminiCommandClient:
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_INSTRUCTION,
                     response_mime_type="application/json",
-                    response_schema=GeminiCommandDraft,
+                    response_json_schema=gemini_response_json_schema(),
                     temperature=0,
                 ),
             )
