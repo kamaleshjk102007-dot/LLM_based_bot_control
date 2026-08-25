@@ -9,7 +9,13 @@ from app.commands.models import UniversalCommand
 from app.robots.models import Robot
 
 
+class RobotAdapterError(RuntimeError):
+    """A vendor-neutral adapter preparation or execution failure."""
+
+
 class RobotAdapter(ABC):
+    simulated = True
+
     def __init__(self, robot: Robot) -> None:
         self.robot = robot
 
@@ -19,11 +25,11 @@ class RobotAdapter(ABC):
 
     @abstractmethod
     def prepare(self, command: UniversalCommand) -> list[dict[str, Any]]:
-        """Translate the command into generic, non-hardware preparation records."""
+        """Translate the command into adapter preparation records."""
 
     @abstractmethod
     def execute(self, command: UniversalCommand) -> list[str]:
-        """Execute through this adapter (simulation only in Phase 2)."""
+        """Execute through this adapter."""
 
     @abstractmethod
     def get_status(self) -> str:
