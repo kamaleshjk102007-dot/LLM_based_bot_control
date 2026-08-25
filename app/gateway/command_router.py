@@ -1,4 +1,4 @@
-"""Pure gateway routing pipeline ending in a simulated ExecutionPlan."""
+"""Pure gateway routing pipeline producing a typed ExecutionPlan."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.adapters.base import RobotAdapterError
 from app.commands.models import Task, UniversalCommand
 from app.gateway.adapter_manager import (
     AdapterManager,
@@ -86,9 +87,7 @@ class CommandRouter:
             return self._plan(command, PlanStatus.UNSUPPORTED, str(exc))
 
         checks = {
-            task.action.value: self.capabilities.has_capability(
-                robot, task.action
-            )
+            task.action.value: self.capabilities.has_capability(robot, task.action)
             for task in command.tasks
         }
 
@@ -96,42 +95,46 @@ class CommandRouter:
             self.safety.validate(command, robot)
         except SafetyError as exc:
             plan = self._plan(command, PlanStatus.UNSAFE, str(exc))
-            return plan.model_copy(
-                update={
-                    "robot_id": robot.robot_id,
-                    "adapter_type": robot.adapter_type,
-                    "capability_checks": checks,
-                }
-            )
+            return plan.model_copy(update={
+                "robot_id": robot.robot_id,
+                "adapter_type": robot.adapter_type,
+                "capability_checks": checks,
+            })
 
         try:
             adapter = self.adapters.get(robot)
         except (AdapterNotFoundError, AdapterManagerError) as exc:
             plan = self._plan(command, PlanStatus.UNSUPPORTED, str(exc))
-            return plan.model_copy(
-                update={
-                    "robot_id": robot.robot_id,
-                    "adapter_type": robot.adapter_type,
-                    "capability_checks": checks,
-                    "safety_passed": True,
-                }
-            )
+            return plan.model_copy(update={
+                "robot_id": robot.robot_id,
+                "adapter_type": robot.adapter_type,
+                "capability_checks": checks,
+                "safety_passed": True,
+            })
 
         if not adapter.validate(command):
             plan = self._plan(
                 command, PlanStatus.INVALID, "Adapter rejected the command."
             )
-            return plan.model_copy(
-                update={
-                    "robot_id": robot.robot_id,
-                    "adapter_type": robot.adapter_type,
-                    "capability_checks": checks,
-                    "safety_passed": True,
-                }
-            )
+            return plan.model_copy(update={
+                "robot_id": robot.robot_id,
+                "adapter_type": robot.adapter_type,
+                "capability_checks": checks,
+                "safety_passed": True,
+            })
 
-        prepared = adapter.prepare(command)
-        results = adapter.execute(command)
+        try:
+            prepared = adapter.prepare(command)
+            results = adapter.execute(command)
+        except RobotAdapterError as exc:
+            plan = self._plan(command, PlanStatus.REJECTED, str(exc))
+            return plan.model_copy(update={
+                "robot_id": robot.robot_id,
+                "adapter_type": robot.adapter_type,
+                "capability_checks": checks,
+                "safety_passed": True,
+            })
+
         return ExecutionPlan(
             plan_id=f"plan-{uuid4()}",
             robot_id=robot.robot_id,
@@ -140,7 +143,7 @@ class CommandRouter:
             tasks=command.tasks,
             capability_checks=checks,
             safety_passed=True,
-            simulated=True,
+            simulated=adapter.simulated,
             prepared_tasks=prepared,
             results=results,
         )
