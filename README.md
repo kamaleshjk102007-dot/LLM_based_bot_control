@@ -51,6 +51,18 @@ Examples:
 
 The CLI prints normalized JSON and `Status: VALID`, or safely rejects the instruction.
 
+## Run entirely on GitHub
+
+No local installation is required:
+
+1. Open repository **Settings > Secrets and variables > Actions**.
+2. Create a repository secret named `GEMINI_API_KEY`.
+3. Open **Actions > Run Universal Robot Command**.
+4. Select **Run workflow**, enter the instruction, and run it.
+5. Open the completed job to read the validated Universal Command.
+
+The secret is injected only at runtime and is never printed or committed.
+
 ## Universal command schema
 
 ```json
