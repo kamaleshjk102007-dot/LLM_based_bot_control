@@ -1,10 +1,8 @@
-"""Bounded DobotLink RPC client for the installed Magician Lite interface."""
+"""Bounded JSON-RPC client for DobotLink's Magician Lite module."""
 
 from __future__ import annotations
 
-import asyncio
-import importlib
-import sys
+import json
 import time
 from enum import Enum
 from typing import Any, Callable
@@ -28,6 +26,82 @@ class ConnectionState(str, Enum):
     ERROR = "ERROR"
 
 
+class _JsonRpcModule:
+    def __init__(self, backend: "_WebSocketDobotLinkBackend", module: str) -> None:
+        self._backend = backend
+        self._module = module
+
+    def __getattr__(self, method: str):
+        def call(**params):
+            return self._backend.call(
+                f"dobotlink.{self._module}.{method}", params
+            )
+        return call
+
+
+class _WebSocketDobotLinkBackend:
+    """Small synchronous JSON-RPC 2.0 transport matching installed DobotLink."""
+
+    def __init__(self, config: DobotConfig) -> None:
+        try:
+            from websockets.sync.client import connect
+        except ImportError as exc:
+            raise DobotConfigurationError(
+                "Real mode requires websockets>=13; install requirements-hardware.txt."
+            ) from exc
+        try:
+            self._socket = connect(
+                f"ws://{config.host}:{config.rpc_port}",
+                open_timeout=config.connect_timeout_seconds,
+                close_timeout=2,
+            )
+        except TimeoutError as exc:
+            raise DobotTimeoutError(
+                f"Timed out connecting to DobotLink at "
+                f"{config.host}:{config.rpc_port}."
+            ) from exc
+        except Exception as exc:
+            raise DobotConnectionError(
+                f"Could not connect to DobotLink at "
+                f"{config.host}:{config.rpc_port}: {exc}"
+            ) from exc
+        self._next_id = 0
+        self._timeout = config.command_timeout_ms / 1000
+        self.MagicianLite = _JsonRpcModule(self, "MagicianLite")
+
+    def call(self, method: str, params: dict[str, Any]) -> Any:
+        self._next_id += 1
+        request_id = self._next_id
+        packet = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params,
+        }
+        try:
+            self._socket.send(json.dumps(packet))
+            while True:
+                response = json.loads(self._socket.recv(timeout=self._timeout))
+                if response.get("id") != request_id:
+                    continue
+                if response.get("error") is not None:
+                    raise DobotError(
+                        f"DobotLink {method} failed: {response['error']!r}"
+                    )
+                return response.get("result")
+        except TimeoutError as exc:
+            raise DobotTimeoutError(f"DobotLink {method} timed out.") from exc
+        except DobotError:
+            raise
+        except Exception as exc:
+            raise DobotConnectionError(
+                f"DobotLink communication failed during {method}: {exc}"
+            ) from exc
+
+    def close(self) -> None:
+        self._socket.close()
+
+
 BackendFactory = Callable[[DobotConfig], Any]
 
 
@@ -44,43 +118,9 @@ class DobotLinkClient:
         self.state = ConnectionState.DISCONNECTED
         self.port_name: str | None = None
         self._backend: Any = None
-        self._backend_factory = backend_factory or self._load_dobotlink_backend
+        self._backend_factory = backend_factory or _WebSocketDobotLinkBackend
         self._sleep = sleep
         self.last_error: str | None = None
-
-    @staticmethod
-    def _load_dobotlink_backend(config: DobotConfig) -> Any:
-        if config.mode is not OperationMode.REAL:
-            raise DobotConfigurationError("DobotLink may only be loaded in real mode.")
-        if config.sdk_path and config.sdk_path not in sys.path:
-            sys.path.insert(0, config.sdk_path)
-        try:
-            module = importlib.import_module("DobotRPC")
-        except ImportError as exc:
-            raise DobotConfigurationError(
-                "DobotRPC is unavailable. Install the verified optional SDK or set "
-                "DOBOT_SDK_PATH to its site-packages directory."
-            ) from exc
-
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            rpc = module.RPCClient(ip=config.host, port=config.rpc_port, loop=loop)
-            loop.run_until_complete(
-                asyncio.wait_for(
-                    rpc.wait_for_connected(),
-                    timeout=config.connect_timeout_seconds,
-                )
-            )
-            return module.DobotlinkAdapter(rpc, is_sync=True)
-        except (TimeoutError, asyncio.TimeoutError) as exc:
-            raise DobotTimeoutError(
-                f"Timed out connecting to DobotLink at {config.host}:{config.rpc_port}."
-            ) from exc
-        except DobotError:
-            raise
-        except Exception as exc:
-            raise DobotConnectionError(f"Could not initialize DobotLink: {exc}") from exc
 
     @staticmethod
     def _result_failed(result: Any) -> bool:
@@ -108,6 +148,15 @@ class DobotLinkClient:
                     ports.append(str(port))
         return ports
 
+    def _close_backend(self) -> None:
+        close = getattr(self._backend, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+        self._backend = None
+
     def connect(self) -> None:
         if self.config.mode is not OperationMode.REAL:
             raise DobotConfigurationError("Simulation mode never connects to DobotLink.")
@@ -124,16 +173,20 @@ class DobotLinkClient:
                 if self.config.robot_port:
                     if detected and self.config.robot_port not in detected:
                         raise DobotConnectionError(
-                            f"Configured DOBOT_PORT_NAME {self.config.robot_port!r} was not detected."
+                            f"Configured DOBOT_PORT_NAME {self.config.robot_port!r} "
+                            "was not detected."
                         )
                     self.port_name = self.config.robot_port
                 elif len(detected) == 1:
                     self.port_name = detected[0]
                 elif not detected:
-                    raise DobotConnectionError("No Magician Lite was detected by DobotLink.")
+                    raise DobotConnectionError(
+                        "No Magician Lite was detected by DobotLink."
+                    )
                 else:
                     raise DobotConfigurationError(
-                        "Multiple DOBOT devices detected; set DOBOT_PORT_NAME explicitly."
+                        "Multiple DOBOT devices detected; "
+                        "set DOBOT_PORT_NAME explicitly."
                     )
 
                 result = module.ConnectDobot(
@@ -146,25 +199,31 @@ class DobotLinkClient:
                 self.state = ConnectionState.CONNECTED
                 pose = module.GetPose(portName=self.port_name, isQueued=False)
                 if self._result_failed(pose):
-                    raise DobotConnectionError(f"Connected but GetPose failed: {pose!r}")
+                    raise DobotConnectionError(
+                        f"Connected but GetPose failed: {pose!r}"
+                    )
                 self.state = ConnectionState.READY
                 return
             except DobotConfigurationError:
+                self._close_backend()
                 self.state = ConnectionState.ERROR
                 raise
             except Exception as exc:
                 self.last_error = str(exc)
+                self._close_backend()
                 self.state = ConnectionState.ERROR
                 if attempt >= self.config.max_retries:
                     if isinstance(exc, DobotError):
                         raise
                     raise DobotConnectionError(
-                        f"DOBOT connection failed after {attempt + 1} attempt(s): {exc}"
+                        f"DOBOT connection failed after {attempt + 1} "
+                        f"attempt(s): {exc}"
                     ) from exc
                 self.state = ConnectionState.CONNECTING
                 self._sleep(min(0.5 * (attempt + 1), 2.0))
 
     def disconnect(self) -> None:
+        error: Exception | None = None
         try:
             if self._backend is not None and self.port_name:
                 self._backend.MagicianLite.DisconnectDobot(
@@ -174,21 +233,29 @@ class DobotLinkClient:
                     isQueued=False,
                 )
         except Exception as exc:
+            error = exc
             self.last_error = str(exc)
-            self.state = ConnectionState.ERROR
-            raise DobotConnectionError(f"DisconnectDobot failed: {exc}") from exc
         finally:
-            self._backend = None
+            self._close_backend()
             self.port_name = None
-            if self.state is not ConnectionState.ERROR:
-                self.state = ConnectionState.DISCONNECTED
+            self.state = (
+                ConnectionState.ERROR if error else ConnectionState.DISCONNECTED
+            )
+        if error:
+            raise DobotConnectionError(f"DisconnectDobot failed: {error}") from error
 
     def is_connected(self) -> bool:
         return self.state in {ConnectionState.CONNECTED, ConnectionState.READY}
 
     def _module(self) -> Any:
-        if self.state is not ConnectionState.READY or self._backend is None or not self.port_name:
-            raise DobotNotReadyError(f"DOBOT is not READY (state={self.state.value}).")
+        if (
+            self.state is not ConnectionState.READY
+            or self._backend is None
+            or not self.port_name
+        ):
+            raise DobotNotReadyError(
+                f"DOBOT is not READY (state={self.state.value})."
+            )
         return self._backend.MagicianLite
 
     def get_status(self) -> dict[str, Any]:
@@ -216,7 +283,10 @@ class DobotLinkClient:
         return self._module().SetPTPCmd(
             portName=self.port_name,
             ptpMode=self.config.ptp_mode,
-            x=position.x, y=position.y, z=position.z, r=position.r,
+            x=position.x,
+            y=position.y,
+            z=position.z,
+            r=position.r,
             isQueued=True,
             isWaitForFinish=True,
             timeout=self.config.command_timeout_ms,
@@ -224,7 +294,9 @@ class DobotLinkClient:
 
     def stop(self) -> Any:
         return self._module().QueuedCmdStop(
-            portName=self.port_name, forceStop=True, isQueued=False
+            portName=self.port_name,
+            forceStop=True,
+            isQueued=False,
         )
 
     def set_gripper(self, on: bool) -> Any:
@@ -232,12 +304,17 @@ class DobotLinkClient:
         effector = module.GetEndEffectorType(
             portName=self.port_name, isQueued=False
         )
-        payload = effector.get("result", effector) if isinstance(effector, dict) else effector
+        payload = (
+            effector.get("result", effector)
+            if isinstance(effector, dict)
+            else effector
+        )
         if isinstance(payload, dict):
             payload = payload.get("type")
         if payload not in (2, "2", "gripper", "Gripper"):
             raise DobotEndEffectorError(
-                f"A gripper was not detected (end-effector response: {effector!r})."
+                "A gripper was not detected "
+                f"(end-effector response: {effector!r})."
             )
         return module.SetEndEffectorGripper(
             portName=self.port_name,
