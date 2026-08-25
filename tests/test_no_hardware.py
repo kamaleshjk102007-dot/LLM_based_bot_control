@@ -14,7 +14,7 @@ FORBIDDEN_IMPORT_FRAGMENTS = (
 )
 
 
-def test_base_requirements_have_no_hardware_dependency():
+def test_base_requirements_have_no_vendor_hardware_dependency():
     requirements = Path("requirements.txt").read_text(encoding="utf-8").lower()
     assert not any(name in requirements for name in FORBIDDEN_DEPENDENCIES)
 
@@ -31,7 +31,7 @@ def test_vendor_transport_imports_are_isolated_to_dobot_adapter():
     assert violations == []
 
 
-def test_dobot_sdk_is_lazy_loaded():
+def test_no_incompatible_legacy_dobot_sdk_import():
     source = Path("app/adapters/dobot/client.py").read_text(encoding="utf-8")
-    assert "importlib.import_module(\"DobotRPC\")" in source
-    assert "import DobotRPC" not in source
+    assert "DobotRPC" not in source
+    assert "websockets.sync.client" in source
