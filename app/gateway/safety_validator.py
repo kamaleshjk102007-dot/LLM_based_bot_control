@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.commands.models import Action, UniversalCommand
+from app.commands.validator import CommandValidationError, validate_command
 from app.gateway.capability_manager import CapabilityError, CapabilityManager
 from app.robots.models import Robot, RobotStatus
 
@@ -20,6 +21,10 @@ class SafetyValidator:
     def validate(self, command: UniversalCommand, robot: Robot) -> None:
         if command is None:
             raise SafetyError("Command is required.")
+        try:
+            validate_command(command)
+        except CommandValidationError as exc:
+            raise SafetyError(str(exc)) from exc
         if command.version not in self.SUPPORTED_VERSIONS:
             raise SafetyError(f"Unsupported command version: {command.version}")
         if not command.tasks:
