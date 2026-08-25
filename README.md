@@ -1,212 +1,217 @@
-# Universal LLM Robot Control Platform — Phase 2
+# Universal LLM Robot Control Platform — Phase 3
 
-A robot-independent platform that converts human instructions into a strict Universal Robot Command, validates it, and routes it through a generic Universal Gateway to a simulated adapter.
+Phase 3 adds an isolated, fail-closed DOBOT Magician Lite adapter to the
+robot-independent language and gateway layers built in Phases 1 and 2.
 
-> **Phase 2 does NOT connect to or physically control any robot. All execution is simulated.**
+> **Simulation is always the default. Real mode is explicit, requires local
+> DobotLink plus a connected robot, and asks for operator confirmation before
+> HOME, MOVE, GRIP, or RELEASE.**
 
 ## Architecture
 
 ```text
-Phase 1:
-Natural language -> Gemini -> Universal Command -> Pydantic validation
-
-Phase 2:
-Universal Command -> Robot Selection -> Capability Check
-                  -> Logical Safety -> Execution Plan
+Natural language -> Gemini -> Pydantic Universal Command
+                                  |
+                                  v
+                         Universal Gateway
+                    selection / capability / safety
+                         |                 |
+                         v                 v
+                    Mock adapter      DOBOT adapter
+                    (simulation)       (real only)
+                                             |
+                                             v
+                              DobotLink WebSocket RPC :9090
+                                             |
+                                             v
+                                  Magician Lite / Magic Box
 ```
+
+Vendor code is confined to `app/adapters/dobot/`. The universal command,
+registry, selector, safety validator, and generic adapter contract contain no
+DOBOT transport details. Importing the package does not load the SDK or touch
+hardware.
+
+## Phase 3 support boundary
+
+The registered real robot is `dobot_001`, initially in `UNKNOWN` state.
+Only a successful lifecycle transition makes it eligible:
 
 ```text
-LLM
- |
- v
-Universal Command
- |
- v
-Universal Gateway
- |-- Robot Registry
- |-- Capability Manager
- |-- Robot Selector
- |-- Safety Validator
- |-- Command Router
- '-- Adapter Manager
- |
- v
-RobotAdapter Interface
- |
- v
-Mock Adapter
- |
- v
-SIMULATED EXECUTION
+DISCONNECTED -> CONNECTING -> CONNECTED -> READY
+                       failure -> ERROR
 ```
 
-The LLM only performs language understanding. Robot selection is deterministic Python logic. The gateway knows capabilities and abstract adapter types, never transport protocols or vendor APIs.
+Supported Phase 3 actions:
 
-## Phase 2 components
+- `GET_STATUS`
+- `HOME`
+- `MOVE` to one operator-configured test pose
+- `STOP` using DobotLink's software queue stop
+- `GRIP`
+- `RELEASE`
 
-- **Robot Registry** — in-memory registration, lookup, filtering, and status updates
-- **Capability Manager** — all-or-nothing validation of every task
-- **Robot Selector** — explicit selection or deterministic automatic selection
-- **Safety Validator** — logical schema, status, capability, and task-combination checks
-- **Command Router** — selection → capability → safety → adapter → plan
-- **Adapter Manager** — extensible mapping from adapter type to implementation
-- **RobotAdapter** — generic abstract interface
-- **MockRobotAdapter** — in-memory simulated preparation and execution
-- **ExecutionPlan** — typed output with status and simulation results
+`PICK` and `PLACE` are intentionally unsupported because they need
+perception, task-space planning, and object-specific safety behavior. Commands
+are fully mapped before the first physical action, so an unsupported step
+rejects the entire multi-step command without partial execution.
 
-Plan statuses are `READY`, `REJECTED`, `NO_ROBOT`, `UNSUPPORTED`, `UNSAFE`, and `INVALID`.
+The Phase 3 STOP is a **software stop**, not a certified emergency stop.
+Always keep the manufacturer's emergency/safety controls available.
 
-`READY` means the command passed gateway checks and the mock adapter simulated acceptance. It does not mean a physical robot executed anything.
+## Verified DOBOT interface
 
-## Robot selection
+The implementation targets the interface verified from DobotLab 2.4.0 and its
+bundled DobotLink/DobotRPC installation:
 
-Only `ONLINE` robots are automatically eligible. A robot must support every action in the command. Selection order is deterministic:
+- DobotLink WebSocket RPC at `127.0.0.1:9090`
+- `DobotRPC==4.8.5`
+- `DobotlinkAdapter(..., is_sync=True).MagicianLite`
+- `SearchDobot`, `ConnectDobot`, `DisconnectDobot`, `GetPose`
+- `SetHOMECmd`, `SetPTPCmd`, `QueuedCmdStop`
+- `GetEndEffectorType`, `SetEndEffectorGripper`
 
-1. Explicit `robot_id`, when supplied
-2. All required capabilities
-3. Lowest priority number
-4. Alphabetically lowest `robot_id` as the tie-break
+Official references:
 
-Gemini never selects a robot, and multi-task commands are never partially approved.
+- [DOBOT DobotLink repository and architecture](https://github.com/Dobot-Arm/DobotLink)
+- [Official Magician Lite DobotLab user manual (PDF)](https://download.dobot.cc/product-manual/magician-lite/cn/Dobot%20Magician%20Lite%20%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C%EF%BC%88DobotLab%E7%89%88%EF%BC%89.pdf)
+
+No serial protocol, USB packet format, or undocumented command was guessed.
 
 ## Requirements
 
+Base/simulation:
+
 - Python 3.11+
-- Google Gemini API key
-- Dependencies in `requirements.txt`
+- Gemini API key
+- `pip install -r requirements.txt`
 
-No robot SDK, ROS, serial, CAN, USB, or vendor dependency is included.
+Real Magician Lite:
 
-## Local installation
+- Windows computer physically connected to the Magician Lite/Magic Box
+- DobotLab/DobotLink installed and running
+- Verified optional SDK: `pip install -r requirements-hardware.txt`
+- Or set `DOBOT_SDK_PATH` to the DobotLink Python `site-packages` directory
 
-```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-copy .env.example .env
-```
+The optional SDK is deliberately absent from the base requirements so GitHub
+Actions and simulation cannot accidentally initialize hardware.
 
-Set the local key in the uncommitted `.env`:
+## Configuration
+
+Copy `.env.example` to the uncommitted `.env` and set
+`GEMINI_API_KEY`. The real `.env` is ignored by Git.
+
+Connection settings:
 
 ```text
-GEMINI_API_KEY=your_api_key_here
+DOBOTLINK_HOST=127.0.0.1
+DOBOTLINK_PORT=9090
+DOBOT_PORT_NAME=                 # optional when exactly one device is detected
+DOBOT_SDK_PATH=                  # optional SDK site-packages directory
+DOBOT_CONNECT_TIMEOUT_SECONDS=10
+DOBOT_COMMAND_TIMEOUT_MS=30000
+DOBOT_MAX_RETRIES=2
+DOBOT_PTP_MODE=1
 ```
 
-The real `.env` is excluded by `.gitignore`.
+Real MOVE is disabled until all values below are present:
 
-## Run locally
+```text
+DOBOT_TEST_X=
+DOBOT_TEST_Y=
+DOBOT_TEST_Z=
+DOBOT_TEST_R=
+DOBOT_MIN_X=
+DOBOT_MAX_X=
+DOBOT_MIN_Y=
+DOBOT_MAX_Y=
+DOBOT_MIN_Z=
+DOBOT_MAX_Z=
+DOBOT_MIN_R=
+DOBOT_MAX_R=
+```
+
+Coordinates are never accepted from an LLM for physical movement in Phase 3.
+The adapter uses only this preconfigured pose and rejects it unless every axis
+is within the explicit bounds.
+
+## Run
+
+Safe default simulation:
 
 ```bash
 python -m app.main
 ```
 
-The CLI registers three demo definitions in memory:
+Explicit real gateway:
 
-- `robot_001`: online generic demo arm using `mock`
-- `robot_002`: online generic mobile robot using `mock`
-- `robot_003`: offline generic drone using `mock`
-
-Example instruction:
-
-```text
-Pick the red cube, place it in box A, then move forward 20 cm.
+```bash
+python -m app.main --mode real
 ```
 
-The expected gateway result selects `robot_001`, passes `PICK`, `PLACE`, and `MOVE`, and returns `Gateway Status: READY` with mock-only messages.
+Focused real diagnostics:
 
-## Run entirely on GitHub
+```bash
+python -m app.main --mode real --dobot-test connection
+python -m app.main --mode real --dobot-test status
+python -m app.main --mode real --dobot-test home
+python -m app.main --mode real --dobot-test move
+python -m app.main --mode real --dobot-test grip
+python -m app.main --mode real --dobot-test release
+```
+
+HOME, MOVE, GRIP, and RELEASE print the exact prepared operation and execute
+only when the supervising operator types `YES`. Connection and status tests
+do not move the robot. Simulation never imports DobotRPC or contacts DobotLink.
+
+## Run simulation on GitHub
+
+GitHub-hosted runners can test the language, gateway, mapping, lifecycle, and
+safety logic, but they cannot reach a USB robot/DobotLink running on your PC.
 
 1. Add `GEMINI_API_KEY` under **Settings → Secrets and variables → Actions**.
 2. Open **Actions → Run Universal Robot Command**.
-3. Select **Run workflow**.
-4. Enter a natural-language instruction.
-5. Open **Convert and validate instruction** in the completed job.
+3. Select **Run workflow** and enter an instruction.
+4. Inspect **Convert and validate instruction**.
 
-The encrypted secret is injected only at runtime and is never committed or printed.
-
-## Universal command example
-
-```json
-{
-  "version": "1.0",
-  "robot_id": null,
-  "tasks": [
-    {
-      "action": "NAVIGATE",
-      "target": {
-        "type": "location",
-        "id": "table"
-      }
-    }
-  ]
-}
-```
-
-Supported actions: `MOVE`, `ROTATE`, `STOP`, `HOME`, `PICK`, `PLACE`, `GRIP`, `RELEASE`, `NAVIGATE`, `GET_STATUS`.
-
-## Execution plan example
-
-```json
-{
-  "plan_id": "plan-generated-id",
-  "robot_id": "robot_002",
-  "adapter_type": "mock",
-  "status": "READY",
-  "tasks": [
-    {
-      "action": "NAVIGATE",
-      "target": {
-        "type": "location",
-        "id": "table"
-      }
-    }
-  ],
-  "capability_checks": {
-    "NAVIGATE": true
-  },
-  "safety_passed": true,
-  "simulated": true,
-  "results": [
-    "[MOCK] NAVIGATE accepted"
-  ]
-}
-```
+Use a self-hosted runner physically attached to the robot only if you knowingly
+want GitHub Actions to access that hardware. Never put real movement
+confirmation flags into an ordinary hosted workflow.
 
 ## Testing
 
-Unit tests never require Gemini:
+Unit suite (no Gemini, DobotLink, or hardware):
 
 ```bash
-pytest -m "not live"
+pytest -m "not live and not hardware"
 ```
 
-The suite covers Phase 1, registry behavior, capabilities, deterministic selection, logical safety, adapter management, routing, gateway scenarios, and the no-hardware architectural guard.
+The DOBOT unit tests inject fake RPC modules and verify lifecycle transitions,
+bounded retries, exact method mapping, simulation isolation, confirmations,
+software STOP labeling, safety limits, unsupported actions, and multi-step
+fail-closed behavior.
 
-The live Gemini test remains opt-in:
+Live Gemini remains opt-in:
 
 ```bash
-RUN_LIVE_GEMINI_TESTS=1 pytest
+RUN_LIVE_GEMINI_TESTS=1 pytest -m live
 ```
 
-GitHub Actions runs the unit suite on Python 3.11, 3.12, and 3.13.
+Physical connection/status integration is separately marked and requires two
+deliberate environment flags after clearing the robot workspace:
 
-## Scope and limitations
-
-Phase 2 uses in-memory definitions only. It implements no database, physical collision avoidance, motion planning, vision, camera access, network endpoint, robot connection, or physical execution.
-
-It contains no DOBOT-specific code, ROS node, serial port, CAN bus, USB driver, motor control, GPIO, or wireless robot communication.
-
-## Future phases
-
-```text
-Phase 3 -> DOBOT Adapter
-Phase 4 -> Real DOBOT Control
-Phase 5 -> Vision
-Phase 6 -> Planning
-Phase 7 -> ROS 2 Adapter
-Phase 8 -> Additional Robot Adapters
-Phase 9 -> Wireless Receiver
+```bash
+RUN_DOBOT_HARDWARE_TESTS=1 DOBOT_HARDWARE_CONFIRMED=YES \
+  pytest -m hardware -s
 ```
 
-Those future adapters and integrations are intentionally not implemented in Phase 2.
+This test does not issue HOME, MOVE, GRIP, or RELEASE. Use the interactive CLI
+for those actions so each operation receives an immediate human confirmation.
+
+## Safety limitations
+
+This software provides logical validation and configured bounds only. It is not
+a safety-rated controller and does not implement collision avoidance,
+trajectory planning, vision, payload checks, speed/acceleration validation, or
+workspace sensing. The operator remains responsible for the physical workspace,
+tooling, fixtures, people nearby, and manufacturer procedures.
