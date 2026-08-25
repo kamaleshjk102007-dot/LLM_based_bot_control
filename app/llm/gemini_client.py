@@ -73,14 +73,22 @@ def _safe_client_error(exc: errors.ClientError) -> str:
     """Classify provider errors without exposing keys or provider response bodies."""
 
     code = getattr(exc, "code", None)
-    reasons = {
-        400: "Gemini rejected the request or API key.",
-        401: "Gemini authentication failed. Check GEMINI_API_KEY.",
-        403: "Gemini denied access. Check the API key and API permissions.",
-        404: "The configured Gemini model is unavailable.",
-        429: "Gemini quota or rate limit was exceeded.",
-    }
-    reason = reasons.get(code, "Gemini returned a client error.")
+    message = str(getattr(exc, "message", "")).lower()
+
+    if "api key not valid" in message or "api_key_invalid" in message:
+        reason = "GEMINI_API_KEY is invalid. Replace the GitHub Actions secret."
+    elif "schema" in message or "invalid argument" in message:
+        reason = "Gemini rejected the structured-output request schema."
+    else:
+        reasons = {
+            400: "Gemini rejected the request.",
+            401: "Gemini authentication failed. Check GEMINI_API_KEY.",
+            403: "Gemini denied access. Check the API key and API permissions.",
+            404: "The configured Gemini model is unavailable.",
+            429: "Gemini quota or rate limit was exceeded.",
+        }
+        reason = reasons.get(code, "Gemini returned a client error.")
+
     suffix = f" (HTTP {code})" if code is not None else ""
     return f"{reason}{suffix}"
 
