@@ -1,0 +1,4 @@
+# Optional real-hardware dependency verified against DobotLab/DobotLink.
+# Keep this separate: simulation and CI must never load a hardware SDK.
+-r requirements.txt
+DobotRPC==4.8.5
