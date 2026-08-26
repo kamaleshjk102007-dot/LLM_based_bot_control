@@ -1,7 +1,7 @@
-# Universal LLM Robot Control Platform — Phase 3
+# Universal LLM Robot Control Platform — Phase 4
 
-Phase 3 adds an isolated, fail-closed DOBOT Magician Lite adapter to the
-robot-independent language and gateway layers built in Phases 1 and 2.
+Phase 4 adds an isolated Webots visual-simulation adapter while preserving the
+fail-closed DOBOT Magician Lite adapter from Phase 3.
 
 > **Simulation is always the default. Real mode is explicit, requires local
 > DobotLink plus a connected robot, and asks for operator confirmation before
@@ -214,3 +214,40 @@ a safety-rated controller and does not implement collision avoidance,
 trajectory planning, vision, payload checks, speed/acceleration validation, or
 workspace sensing. The operator remains responsible for the physical workspace,
 tooling, fixtures, people nearby, and manufacturer procedures.
+
+
+## Webots visual simulation
+
+The repository includes a simplified, uncalibrated Magician Lite-style arm for
+safe visual testing. It is a software model, not a certified digital twin, and
+it never imports DOBOT code or connects to DobotLink.
+
+1. Install Webots R2025a or newer from the official Webots download page.
+2. Open `simulation/webots/worlds/magician_lite.wbt` in Webots.
+3. Press the Webots **Play** button. The controller listens only on
+   `127.0.0.1:8765`.
+4. In a separate PowerShell window, from the repository root, run:
+
+```powershell
+python -m app.main --mode webots
+```
+
+5. At `Enter robot instruction:`, try:
+
+```text
+Move forward 20 centimeters, then get the robot status.
+```
+
+Expected CLI indicators are `Adapter: webots`, `Execution: SIMULATED`, and
+`Gateway Status: READY`. The virtual arm should animate in Webots.
+
+Supported visual actions are `MOVE` with a direction, `ROTATE`, `HOME`,
+`STOP`, and `GET_STATUS`. The directional model accepts forward, backward,
+left, right, up, and down. It intentionally does not claim millimetre-accurate
+kinematics or collision/safety validation.
+
+The three modes are separate:
+
+- `python -m app.main` — text-only mock simulation
+- `python -m app.main --mode webots` — local visual simulation
+- `python -m app.main --mode real` — physical DOBOT; do not use for simulator tests

@@ -84,6 +84,29 @@ def build_demo_gateway() -> UniversalGateway:
     return UniversalGateway(registry)
 
 
+
+def _build_webots_gateway() -> UniversalGateway:
+    """Build a visual-simulation gateway with no physical hardware path."""
+    from app.adapters.webots import WebotsRobotAdapter
+
+    robot = Robot.model_validate({
+        "robot_id": "webots_001",
+        "name": "Virtual Magician Lite",
+        "robot_type": "robotic_arm",
+        "manufacturer": "DOBOT-inspired",
+        "model": "simplified_visual_model",
+        "adapter_type": "webots",
+        "capabilities": ["MOVE", "ROTATE", "HOME", "STOP", "GET_STATUS"],
+        "status": "ONLINE",
+        "priority": 1,
+    })
+    registry = RobotRegistry()
+    registry.register(robot)
+    manager = AdapterManager(register_mock=False)
+    manager.register("webots", WebotsRobotAdapter)
+    return UniversalGateway(registry, manager)
+
+
 def _confirm_physical(action: str, detail: str) -> bool:
     print("\nWARNING: REAL DOBOT HARDWARE OPERATION")
     print(f"Action: {action}")
@@ -165,8 +188,8 @@ def _dobot_test(name: str) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Universal Robot Control")
     parser.add_argument(
-        "--mode", choices=("simulation", "real"), default="simulation",
-        help="simulation is the safe default; real explicitly enables DobotLink",
+        "--mode", choices=("simulation", "webots", "real"), default="simulation",
+        help="simulation is text-only, webots is visual, and real explicitly enables DobotLink",
     )
     parser.add_argument(
         "--dobot-test",
@@ -189,14 +212,16 @@ def run(argv: list[str] | None = None) -> int:
     try:
         if args.mode == "real":
             gateway, client = _build_real_gateway()
+        elif args.mode == "webots":
+            gateway = _build_webots_gateway()
         else:
             gateway = build_demo_gateway()
     except Exception as exc:
-        print(f"\nReal DOBOT startup failed safely: {exc}", file=sys.stderr)
+        print(f"\nStartup failed safely: {exc}", file=sys.stderr)
         return 1
 
     print("=" * 48)
-    print(f" UNIVERSAL ROBOT CONTROL - PHASE 3 ({args.mode.upper()})")
+    print(f" UNIVERSAL ROBOT CONTROL - PHASE 4 ({args.mode.upper()})")
     print("=" * 48)
     _print_registry(gateway)
     print("\nEnter robot instruction:")

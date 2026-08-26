@@ -1,0 +1,108 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+
+WorldInfo {
+  basicTimeStep 32
+  title "Universal LLM Robot Control - Safe Visual Simulator"
+}
+Viewpoint {
+  orientation -0.416 0.835 0.360 1.75
+  position 0.75 -0.85 0.55
+}
+TexturedBackground {}
+TexturedBackgroundLight {}
+RectangleArena {
+  floorSize 1.2 1.2
+}
+Robot {
+  name "Virtual Magician Lite"
+  controller "llm_robot_controller"
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.12 0.32 0.72 roughness 0.35 }
+      geometry Cylinder { height 0.08 radius 0.075 }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters { axis 0 0 1 anchor 0 0 0.08 }
+      device [
+        RotationalMotor { name "base_motor" minPosition -2.356 maxPosition 2.356 maxTorque 20 }
+      ]
+      endPoint Solid {
+        translation 0 0 0.08
+        children [
+          Shape {
+            appearance PBRAppearance { baseColor 0.88 0.88 0.92 roughness 0.4 }
+            geometry Box { size 0.08 0.08 0.10 }
+          }
+          HingeJoint {
+            jointParameters HingeJointParameters { axis 0 1 0 anchor 0 0 0.05 }
+            device [
+              RotationalMotor { name "shoulder_motor" minPosition -0.087 maxPosition 1.396 maxTorque 20 }
+            ]
+            endPoint Solid {
+              translation 0 0 0.05
+              children [
+                Transform {
+                  translation 0 0 0.075
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0.20 0.48 0.92 roughness 0.3 }
+                      geometry Box { size 0.045 0.055 0.15 }
+                    }
+                  ]
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { axis 0 1 0 anchor 0 0 0.15 }
+                  device [
+                    RotationalMotor { name "elbow_motor" minPosition -0.175 maxPosition 1.484 maxTorque 15 }
+                  ]
+                  endPoint Solid {
+                    translation 0 0 0.15
+                    children [
+                      Transform {
+                        translation 0 0 0.075
+                        children [
+                          Shape {
+                            appearance PBRAppearance { baseColor 0.88 0.88 0.92 roughness 0.4 }
+                            geometry Box { size 0.04 0.05 0.15 }
+                          }
+                        ]
+                      }
+                      HingeJoint {
+                        jointParameters HingeJointParameters { axis 0 0 1 anchor 0 0 0.15 }
+                        device [
+                          RotationalMotor { name "wrist_motor" minPosition -2.531 maxPosition 2.531 maxTorque 8 }
+                        ]
+                        endPoint Solid {
+                          translation 0 0 0.15
+                          children [
+                            Shape {
+                              appearance PBRAppearance { baseColor 0.95 0.45 0.08 roughness 0.3 }
+                              geometry Box { size 0.075 0.035 0.035 }
+                            }
+                          ]
+                          boundingObject Box { size 0.075 0.035 0.035 }
+                          physics Physics { mass 0.08 }
+                        }
+                      }
+                    ]
+                    boundingObject Box { size 0.04 0.05 0.15 }
+                    physics Physics { mass 0.18 }
+                  }
+                }
+              ]
+              boundingObject Box { size 0.045 0.055 0.15 }
+              physics Physics { mass 0.22 }
+            }
+          }
+        ]
+        boundingObject Box { size 0.08 0.08 0.10 }
+        physics Physics { mass 0.35 }
+      }
+    }
+  ]
+  boundingObject Cylinder { height 0.08 radius 0.075 }
+}
