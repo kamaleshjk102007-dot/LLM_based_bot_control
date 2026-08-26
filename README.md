@@ -65,8 +65,8 @@ The implementation targets the interface verified from DobotLab 2.4.0 and its
 bundled DobotLink/DobotRPC installation:
 
 - DobotLink WebSocket RPC at `127.0.0.1:9090`
-- `DobotRPC==4.8.5`
-- `DobotlinkAdapter(..., is_sync=True).MagicianLite`
+- Installed DobotRPC 4.8.5 source was used to verify the JSON-RPC envelope and module naming
+- Direct `dobotlink.MagicianLite.*` JSON-RPC over the supported DobotLink WebSocket
 - `SearchDobot`, `ConnectDobot`, `DisconnectDobot`, `GetPose`
 - `SetHOMECmd`, `SetPTPCmd`, `QueuedCmdStop`
 - `GetEndEffectorType`, `SetEndEffectorGripper`
@@ -90,11 +90,9 @@ Real Magician Lite:
 
 - Windows computer physically connected to the Magician Lite/Magic Box
 - DobotLab/DobotLink installed and running
-- Verified optional SDK: `pip install -r requirements-hardware.txt`
-- Or set `DOBOT_SDK_PATH` to the DobotLink Python `site-packages` directory
+- Modern synchronous WebSocket transport: `pip install -r requirements-hardware.txt`
 
-The optional SDK is deliberately absent from the base requirements so GitHub
-Actions and simulation cannot accidentally initialize hardware.
+The incompatible legacy DobotRPC dependency is not installed. Real mode uses the verified DobotLink JSON-RPC calls directly; simulation never opens a hardware connection.
 
 ## Configuration
 
@@ -107,11 +105,15 @@ Connection settings:
 DOBOTLINK_HOST=127.0.0.1
 DOBOTLINK_PORT=9090
 DOBOT_PORT_NAME=                 # optional when exactly one device is detected
-DOBOT_SDK_PATH=                  # optional SDK site-packages directory
 DOBOT_CONNECT_TIMEOUT_SECONDS=10
 DOBOT_COMMAND_TIMEOUT_MS=30000
 DOBOT_MAX_RETRIES=2
 DOBOT_PTP_MODE=1
+DOBOT_VERIFY_TIMEOUT_SECONDS=5
+DOBOT_VERIFY_START_DELAY_SECONDS=0.5
+DOBOT_POSITION_TOLERANCE_MM=1
+DOBOT_ROTATION_TOLERANCE_DEGREES=1
+DOBOT_VERIFY_SAMPLES=3
 ```
 
 Real MOVE is disabled until all values below are present:
@@ -131,9 +133,7 @@ DOBOT_MIN_R=
 DOBOT_MAX_R=
 ```
 
-Coordinates are never accepted from an LLM for physical movement in Phase 3.
-The adapter uses only this preconfigured pose and rejects it unless every axis
-is within the explicit bounds.
+Coordinates are never accepted from an LLM for physical movement in Phase 3. The adapter uses only this preconfigured pose and rejects it unless every axis is within the explicit bounds. After MOVE, it requires three consecutive GetPose samples within the configured tolerances. A mismatch triggers software queue stop and clear, marks the client ERROR, and reports before, target, and final poses.
 
 ## Run
 
@@ -188,8 +188,7 @@ pytest -m "not live and not hardware"
 
 The DOBOT unit tests inject fake RPC modules and verify lifecycle transitions,
 bounded retries, exact method mapping, simulation isolation, confirmations,
-software STOP labeling, safety limits, unsupported actions, and multi-step
-fail-closed behavior.
+software STOP labeling, safety limits, unsupported actions, multi-step fail-closed behavior, verified final-pose success, and mismatch stop/clear behavior.
 
 Live Gemini remains opt-in:
 
