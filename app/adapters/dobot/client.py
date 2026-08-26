@@ -203,6 +203,7 @@ class DobotLinkClient:
                         f"Connected but GetPose failed: {pose!r}"
                     )
                 self.state = ConnectionState.READY
+                self.last_error = None
                 return
             except DobotConfigurationError:
                 self._close_backend()
