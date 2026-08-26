@@ -113,6 +113,7 @@ class DobotLinkClient:
         config: DobotConfig,
         backend_factory: BackendFactory | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config
         self.state = ConnectionState.DISCONNECTED
@@ -120,6 +121,7 @@ class DobotLinkClient:
         self._backend: Any = None
         self._backend_factory = backend_factory or _WebSocketDobotLinkBackend
         self._sleep = sleep
+        self._clock = clock
         self.last_error: str | None = None
 
     @staticmethod
@@ -280,8 +282,55 @@ class DobotLinkClient:
             timeout=self.config.command_timeout_ms,
         )
 
-    def move(self, position: DobotPosition) -> Any:
-        return self._module().SetPTPCmd(
+    @staticmethod
+    def _position_from_pose(pose: Any) -> DobotPosition:
+        payload = pose.get("result", pose) if isinstance(pose, dict) else pose
+        if not isinstance(payload, dict):
+            raise DobotSafetyError(f"Invalid GetPose response: {pose!r}")
+        try:
+            return DobotPosition(
+                x=float(payload["x"]),
+                y=float(payload["y"]),
+                z=float(payload["z"]),
+                r=float(payload["r"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DobotSafetyError(
+                f"Incomplete GetPose response: {pose!r}"
+            ) from exc
+
+    def _read_position(self) -> DobotPosition:
+        pose = self._module().GetPose(
+            portName=self.port_name, isQueued=False
+        )
+        return self._position_from_pose(pose)
+
+    def _target_matches(
+        self, actual: DobotPosition, target: DobotPosition
+    ) -> bool:
+        return (
+            abs(actual.x - target.x) <= self.config.position_tolerance_mm
+            and abs(actual.y - target.y) <= self.config.position_tolerance_mm
+            and abs(actual.z - target.z) <= self.config.position_tolerance_mm
+            and abs(actual.r - target.r)
+            <= self.config.rotation_tolerance_degrees
+        )
+
+    def _stop_and_clear_queue(self) -> None:
+        module = self._backend.MagicianLite
+        try:
+            module.QueuedCmdStop(
+                portName=self.port_name, forceStop=True, isQueued=False
+            )
+        finally:
+            module.QueuedCmdClear(
+                portName=self.port_name, isQueued=False
+            )
+
+    def move(self, position: DobotPosition) -> dict[str, Any]:
+        module = self._module()
+        before = self._read_position()
+        accepted = module.SetPTPCmd(
             portName=self.port_name,
             ptpMode=self.config.ptp_mode,
             x=position.x,
@@ -292,6 +341,46 @@ class DobotLinkClient:
             isWaitForFinish=True,
             timeout=self.config.command_timeout_ms,
         )
+        if self._result_failed(accepted):
+            self._stop_and_clear_queue()
+            raise DobotSafetyError(
+                f"SetPTPCmd was not accepted: {accepted!r}"
+            )
+
+        self._sleep(self.config.verification_start_delay_seconds)
+        deadline = self._clock() + self.config.verification_timeout_seconds
+        matching_samples = 0
+        final = before
+        while self._clock() <= deadline:
+            final = self._read_position()
+            if self._target_matches(final, position):
+                matching_samples += 1
+                if matching_samples >= self.config.verification_samples:
+                    module.QueuedCmdClear(
+                        portName=self.port_name, isQueued=False
+                    )
+                    return {
+                        "verified": True,
+                        "accepted": accepted,
+                        "before": before.as_dict(),
+                        "target": position.as_dict(),
+                        "final": final.as_dict(),
+                    }
+            else:
+                matching_samples = 0
+            self._sleep(0.1)
+
+        try:
+            self._stop_and_clear_queue()
+        finally:
+            self.state = ConnectionState.ERROR
+        message = (
+            "MOVE final-pose verification failed; software stop and queue "
+            f"clear issued. before={before.as_dict()}, "
+            f"target={position.as_dict()}, final={final.as_dict()}"
+        )
+        self.last_error = message
+        raise DobotSafetyError(message)
 
     def stop(self) -> Any:
         return self._module().QueuedCmdStop(
