@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 
+from dotenv import load_dotenv
+
 from app.adapters.dobot.exceptions import DobotConfigurationError, DobotSafetyError
 
 
@@ -68,6 +70,7 @@ class DobotConfig:
 
     @classmethod
     def from_env(cls, mode: OperationMode | str = OperationMode.SIMULATION) -> "DobotConfig":
+        load_dotenv()
         resolved_mode = OperationMode(mode)
         position_names = ("DOBOT_TEST_X", "DOBOT_TEST_Y", "DOBOT_TEST_Z", "DOBOT_TEST_R")
         limit_names = (
