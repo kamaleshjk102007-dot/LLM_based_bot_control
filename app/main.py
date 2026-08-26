@@ -126,6 +126,7 @@ def _dobot_test(name: str) -> int:
     from app.adapters.dobot.capabilities import build_dobot_robot
     from app.adapters.dobot.client import DobotLinkClient
     from app.adapters.dobot.config import DobotConfig
+    from app.adapters.base import RobotAdapterError
     from app.adapters.dobot.exceptions import DobotError
 
     print("WARNING: --dobot-test uses a physical Magician Lite in real mode.")
@@ -151,7 +152,7 @@ def _dobot_test(name: str) -> int:
         )
         print("\n".join(adapter.execute(command)))
         return 0
-    except (DobotError, ValueError) as exc:
+    except (DobotError, RobotAdapterError, ValueError) as exc:
         print(f"\nDOBOT test failed safely: {exc}", file=sys.stderr)
         return 1
     finally:
