@@ -97,7 +97,8 @@ The incompatible legacy DobotRPC dependency is not installed. Real mode uses the
 ## Configuration
 
 Copy `.env.example` to the uncommitted `.env` and set
-`GEMINI_API_KEY`. The real `.env` is ignored by Git.
+`GEMINI_API_KEY`. The real `.env` is ignored by Git. The current stable default is
+`GEMINI_MODEL=gemini-3.7-flash`; an older model ID may return HTTP 404.
 
 Connection settings:
 

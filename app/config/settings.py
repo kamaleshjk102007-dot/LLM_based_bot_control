@@ -15,7 +15,7 @@ class ConfigurationError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class Settings:
     gemini_api_key: str
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.7-flash"
     gemini_timeout_ms: int = 30_000
 
     @classmethod
@@ -27,7 +27,7 @@ class Settings:
                 "GEMINI_API_KEY is missing. Copy .env.example to .env and add your key."
             )
 
-        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        model = os.getenv("GEMINI_MODEL", "gemini-3.7-flash").strip()
         try:
             timeout_ms = int(os.getenv("GEMINI_TIMEOUT_MS", "30000"))
         except ValueError as exc:
