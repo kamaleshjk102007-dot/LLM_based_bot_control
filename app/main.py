@@ -156,11 +156,10 @@ def _dobot_test(name: str) -> int:
         print(f"\nDOBOT test failed safely: {exc}", file=sys.stderr)
         return 1
     finally:
-        if client.is_connected():
-            try:
-                client.disconnect()
-            except DobotError as exc:
-                print(f"Disconnect warning: {exc}", file=sys.stderr)
+        try:
+            client.disconnect()
+        except DobotError as exc:
+            print(f"Disconnect warning: {exc}", file=sys.stderr)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -233,7 +232,7 @@ def run(argv: list[str] | None = None) -> int:
             },
         )
         print(f"\nError: {exc}\n\nGateway Status: INVALID")
-        if client and client.is_connected():
+        if client:
             client.disconnect()
         return 1
 
@@ -244,7 +243,7 @@ def run(argv: list[str] | None = None) -> int:
     try:
         plan = gateway.process(command)
     finally:
-        if client and client.is_connected():
+        if client:
             client.disconnect()
 
     if plan.robot_id:
