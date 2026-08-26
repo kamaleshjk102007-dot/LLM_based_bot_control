@@ -331,17 +331,33 @@ class DobotLinkClient:
     def move(self, position: DobotPosition) -> dict[str, Any]:
         module = self._module()
         before = self._read_position()
-        accepted = module.SetPTPCmd(
-            portName=self.port_name,
-            ptpMode=self.config.ptp_mode,
-            x=position.x,
-            y=position.y,
-            z=position.z,
-            r=position.r,
-            isQueued=True,
-            isWaitForFinish=True,
-            timeout=self.config.command_timeout_ms,
-        )
+        try:
+            accepted = module.SetPTPCmd(
+                portName=self.port_name,
+                ptpMode=self.config.ptp_mode,
+                x=position.x,
+                y=position.y,
+                z=position.z,
+                r=position.r,
+                isQueued=True,
+                isWaitForFinish=True,
+                timeout=self.config.command_timeout_ms,
+            )
+        except Exception as exc:
+            stop_error = None
+            try:
+                self._stop_and_clear_queue()
+            except Exception as cleanup_exc:
+                stop_error = cleanup_exc
+            self.state = ConnectionState.ERROR
+            message = (
+                "SetPTPCmd failed before completion confirmation; software stop "
+                f"and queue clear attempted. error={exc!r}"
+            )
+            if stop_error is not None:
+                message += f", cleanup_error={stop_error!r}"
+            self.last_error = message
+            raise DobotSafetyError(message) from exc
         if self._result_failed(accepted):
             self._stop_and_clear_queue()
             raise DobotSafetyError(

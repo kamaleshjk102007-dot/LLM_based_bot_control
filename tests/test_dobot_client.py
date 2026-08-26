@@ -169,3 +169,24 @@ def test_guarded_calibration_rejects_more_than_five_mm():
     client.connect()
     with pytest.raises(DobotSafetyError, match="no more than 5"):
         client.calibration_preview("x", 5.01)
+
+
+def test_move_timeout_attempts_stop_and_clear_and_enters_error():
+    class TimeoutLite(FakeLite):
+        def __getattr__(self, name):
+            if name == "SetPTPCmd":
+                def timeout(**kwargs):
+                    self.calls.append((name, kwargs))
+                    raise TimeoutError("no completion response")
+                return timeout
+            return super().__getattr__(name)
+
+    client, lite = make_client(TimeoutLite())
+    client.connect()
+    with pytest.raises(DobotSafetyError, match="software stop and queue clear attempted"):
+        client.move(DobotPosition(100, 0, 51, 0))
+    names = [name for name, _ in lite.calls]
+    assert "QueuedCmdStop" in names
+    assert "QueuedCmdClear" in names
+    assert client.state is ConnectionState.ERROR
+    assert "no completion response" in client.last_error

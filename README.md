@@ -268,3 +268,11 @@ python -m app.main --mode real --dobot-calibrate-axis z --dobot-calibrate-mm 5
 
 Run only one supervised axis test at a time. Review the printed before and target
 poses before confirming. A changed pose after confirmation cancels the command.
+
+
+### Command-submission timeout behavior
+
+A SetPTPCmd exception or timeout is treated as an unknown physical outcome. The
+client immediately attempts software queue stop and clear, enters ERROR state,
+and reports both the original failure and any cleanup failure. Operators must
+still use physical emergency controls if motion continues.
