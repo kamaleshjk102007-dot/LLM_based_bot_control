@@ -14,6 +14,7 @@ from app.adapters.dobot.exceptions import (
     DobotEndEffectorError,
     DobotError,
     DobotNotReadyError,
+    DobotSafetyError,
     DobotTimeoutError,
 )
 
