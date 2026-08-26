@@ -251,3 +251,20 @@ The three modes are separate:
 - `python -m app.main` — text-only mock simulation
 - `python -m app.main --mode webots` — local visual simulation
 - `python -m app.main --mode real` — physical DOBOT; do not use for simulator tests
+
+
+## Guarded physical calibration
+
+Ordinary LLM MOVE remains separate. Calibration is an explicit diagnostic that
+uses the live pose, permits only one Cartesian axis, enforces a hard maximum of
+5 mm, applies 5% PTP velocity/acceleration ratios, requires an exact `YES`,
+and reuses final-pose verification plus software stop/queue clear on failure.
+
+Example (physical movement):
+
+```powershell
+python -m app.main --mode real --dobot-calibrate-axis z --dobot-calibrate-mm 5
+```
+
+Run only one supervised axis test at a time. Review the printed before and target
+poses before confirming. A changed pose after confirmation cancels the command.

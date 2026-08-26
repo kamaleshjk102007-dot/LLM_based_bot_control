@@ -69,6 +69,9 @@ class DobotConfig:
     position_tolerance_mm: float = 1.0
     rotation_tolerance_degrees: float = 1.0
     verification_samples: int = 3
+    calibration_max_step_mm: float = 5.0
+    calibration_speed_ratio: float = 5.0
+    calibration_acceleration_ratio: float = 5.0
     test_position: DobotPosition | None = None
     safety_limits: SafetyLimits | None = None
 
@@ -135,6 +138,15 @@ class DobotConfig:
                 verification_samples=int(
                     os.getenv("DOBOT_VERIFY_SAMPLES", "3")
                 ),
+                calibration_max_step_mm=float(
+                    os.getenv("DOBOT_CALIBRATION_MAX_STEP_MM", "5")
+                ),
+                calibration_speed_ratio=float(
+                    os.getenv("DOBOT_CALIBRATION_SPEED_RATIO", "5")
+                ),
+                calibration_acceleration_ratio=float(
+                    os.getenv("DOBOT_CALIBRATION_ACCELERATION_RATIO", "5")
+                ),
                 test_position=optional_group(position_names, DobotPosition),
                 safety_limits=optional_group(limit_names, SafetyLimits),
             )
@@ -167,6 +179,18 @@ class DobotConfig:
         if not 1 <= config.verification_samples <= 10:
             raise DobotConfigurationError(
                 "DOBOT_VERIFY_SAMPLES must be between 1 and 10."
+            )
+        if not 0 < config.calibration_max_step_mm <= 5:
+            raise DobotConfigurationError(
+                "DOBOT_CALIBRATION_MAX_STEP_MM must be greater than 0 and at most 5."
+            )
+        if not 1 <= config.calibration_speed_ratio <= 10:
+            raise DobotConfigurationError(
+                "DOBOT_CALIBRATION_SPEED_RATIO must be between 1 and 10."
+            )
+        if not 1 <= config.calibration_acceleration_ratio <= 10:
+            raise DobotConfigurationError(
+                "DOBOT_CALIBRATION_ACCELERATION_RATIO must be between 1 and 10."
             )
         if config.ptp_mode not in {0, 1, 2}:
             raise DobotConfigurationError(

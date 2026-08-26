@@ -13,8 +13,9 @@ from app.adapters.dobot.exceptions import (
 
 
 class FakeLite:
-    def __init__(self, pose=None):
+    def __init__(self, pose=None, follow_move=True):
         self.calls = []
+        self.follow_move = follow_move
         self.pose = pose or {"x": 100, "y": 0, "z": 50, "r": 0}
 
     def SearchDobot(self):
@@ -28,6 +29,8 @@ class FakeLite:
                 return dict(self.pose)
             if name == "GetEndEffectorType":
                 return 2
+            if name == "SetPTPCmd" and self.follow_move:
+                self.pose = {axis: kwargs[axis] for axis in ("x", "y", "z", "r")}
             return {"ok": True}
         return call
 
@@ -95,7 +98,7 @@ def test_lifecycle_and_verified_rpc_mapping():
 
 
 def test_move_mismatch_stops_clears_and_enters_error():
-    lite = FakeLite({"x": 100, "y": 25, "z": 50, "r": 0})
+    lite = FakeLite({"x": 100, "y": 25, "z": 50, "r": 0}, follow_move=False)
     config = DobotConfig(
         mode=OperationMode.REAL,
         max_retries=0,
@@ -135,3 +138,34 @@ def test_connection_retries_are_bounded():
         client.connect()
     assert attempts == 3
     assert client.state is ConnectionState.ERROR
+
+
+def test_guarded_calibration_is_single_axis_low_speed_and_verified():
+    limits = __import__("app.adapters.dobot.config", fromlist=["SafetyLimits"]).SafetyLimits(
+        50, 150, -50, 50, 20, 100, -90, 90
+    )
+    config = DobotConfig(
+        mode=OperationMode.REAL,
+        max_retries=0,
+        verification_start_delay_seconds=0,
+        safety_limits=limits,
+    )
+    client, lite = make_client(FakeLite(), config, FakeClock())
+    client.connect()
+    before, target = client.calibration_preview("z", 5)
+    assert target.z == before.z + 5
+    result = client.calibrate("z", 5, before)
+    assert result["verified"] is True
+    assert result["calibration_axis"] == "z"
+    speed_calls = [kwargs for name, kwargs in lite.calls if name == "SetPTPCommonParams"]
+    assert speed_calls == [{
+        "portName": "COM7", "velocityRatio": 5.0,
+        "accelerationRatio": 5.0, "isQueued": False,
+    }]
+
+
+def test_guarded_calibration_rejects_more_than_five_mm():
+    client, _ = make_client()
+    client.connect()
+    with pytest.raises(DobotSafetyError, match="no more than 5"):
+        client.calibration_preview("x", 5.01)

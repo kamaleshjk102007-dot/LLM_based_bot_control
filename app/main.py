@@ -185,11 +185,57 @@ def _dobot_test(name: str) -> int:
             print(f"Disconnect warning: {exc}", file=sys.stderr)
 
 
+
+def _dobot_calibrate(axis: str, delta_mm: float) -> int:
+    """Run one explicitly confirmed, bounded, single-axis calibration move."""
+    from app.adapters.dobot.client import DobotLinkClient
+    from app.adapters.dobot.config import DobotConfig
+    from app.adapters.dobot.exceptions import DobotError
+
+    print("WARNING: calibration moves the physical Magician Lite.")
+    config = DobotConfig.from_env("real")
+    client = DobotLinkClient(config)
+    try:
+        client.connect()
+        before, target = client.calibration_preview(axis, delta_mm)
+        detail = json.dumps({
+            "axis": axis.upper(),
+            "delta_mm": delta_mm,
+            "before": before.as_dict(),
+            "target": target.as_dict(),
+            "speed_ratio": config.calibration_speed_ratio,
+            "acceleration_ratio": config.calibration_acceleration_ratio,
+            "hard_max_step_mm": config.calibration_max_step_mm,
+        }, sort_keys=True)
+        if not _confirm_physical("CALIBRATE", detail):
+            print("Calibration cancelled; no movement command was sent.")
+            return 1
+        result = client.calibrate(axis, delta_mm, before)
+        print(f"[DOBOT REAL] CALIBRATION VERIFIED: {json.dumps(result, sort_keys=True)}")
+        return 0
+    except (DobotError, ValueError) as exc:
+        print(f"\nDOBOT calibration failed safely: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        try:
+            client.disconnect()
+        except DobotError as exc:
+            print(f"Disconnect warning: {exc}", file=sys.stderr)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Universal Robot Control")
     parser.add_argument(
         "--mode", choices=("simulation", "webots", "real"), default="simulation",
         help="simulation is text-only, webots is visual, and real explicitly enables DobotLink",
+    )
+    parser.add_argument(
+        "--dobot-calibrate-axis", choices=("x", "y", "z"),
+        help="guarded real calibration axis; requires --dobot-calibrate-mm",
+    )
+    parser.add_argument(
+        "--dobot-calibrate-mm", type=float,
+        help="signed calibration distance, hard-limited to 5 mm",
     )
     parser.add_argument(
         "--dobot-test",
@@ -201,6 +247,14 @@ def _parser() -> argparse.ArgumentParser:
 
 def run(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if (args.dobot_calibrate_axis is None) != (args.dobot_calibrate_mm is None):
+        print("--dobot-calibrate-axis and --dobot-calibrate-mm are required together.", file=sys.stderr)
+        return 2
+    if args.dobot_calibrate_axis is not None:
+        if args.mode != "real":
+            print("Calibration requires --mode real.", file=sys.stderr)
+            return 2
+        return _dobot_calibrate(args.dobot_calibrate_axis, args.dobot_calibrate_mm)
     if args.dobot_test:
         if args.mode != "real":
             print("--dobot-test requires --mode real.", file=sys.stderr)

@@ -383,6 +383,72 @@ class DobotLinkClient:
         self.last_error = message
         raise DobotSafetyError(message)
 
+    def calibration_preview(
+        self, axis: str, delta_mm: float
+    ) -> tuple[DobotPosition, DobotPosition]:
+        """Create a bounded single-axis target from the live Cartesian pose."""
+        normalized_axis = axis.lower()
+        if normalized_axis not in {"x", "y", "z"}:
+            raise DobotSafetyError("Calibration axis must be X, Y, or Z.")
+        if delta_mm == 0 or abs(delta_mm) > self.config.calibration_max_step_mm:
+            raise DobotSafetyError(
+                "Calibration movement must be non-zero and no more than "
+                f"{self.config.calibration_max_step_mm:g} mm."
+            )
+        if self.config.safety_limits is None:
+            raise DobotConfigurationError(
+                "Calibration is disabled until all DOBOT_MIN/MAX_X/Y/Z/R "
+                "limits are configured."
+            )
+        before = self._read_position()
+        values = before.as_dict()
+        values[normalized_axis] += delta_mm
+        target = DobotPosition(**values)
+        self.config.safety_limits.validate(target)
+        return before, target
+
+    def calibrate(
+        self,
+        axis: str,
+        delta_mm: float,
+        expected_before: DobotPosition,
+    ) -> dict[str, Any]:
+        """Execute one low-speed, single-axis calibration move."""
+        current = self._read_position()
+        if not self._target_matches(current, expected_before):
+            raise DobotSafetyError(
+                "Robot pose changed after confirmation; calibration cancelled. "
+                f"preview={expected_before.as_dict()}, current={current.as_dict()}"
+            )
+        normalized_axis = axis.lower()
+        values = current.as_dict()
+        values[normalized_axis] += delta_mm
+        target = DobotPosition(**values)
+        if self.config.safety_limits is None:
+            raise DobotConfigurationError("Calibration safety limits are missing.")
+        self.config.safety_limits.validate(target)
+
+        module = self._module()
+        speed_result = module.SetPTPCommonParams(
+            portName=self.port_name,
+            velocityRatio=self.config.calibration_speed_ratio,
+            accelerationRatio=self.config.calibration_acceleration_ratio,
+            isQueued=False,
+        )
+        if self._result_failed(speed_result):
+            self._stop_and_clear_queue()
+            raise DobotSafetyError(
+                f"Low-speed calibration setup failed: {speed_result!r}"
+            )
+        result = self.move(target)
+        result.update({
+            "calibration_axis": normalized_axis,
+            "requested_delta_mm": delta_mm,
+            "speed_ratio": self.config.calibration_speed_ratio,
+            "acceleration_ratio": self.config.calibration_acceleration_ratio,
+        })
+        return result
+
     def stop(self) -> Any:
         return self._module().QueuedCmdStop(
             portName=self.port_name,

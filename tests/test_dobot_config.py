@@ -41,3 +41,9 @@ def test_out_of_bounds_position_is_rejected(monkeypatch):
     monkeypatch.setenv("DOBOT_TEST_X", "151")
     with pytest.raises(DobotSafetyError, match="outside"):
         DobotConfig.from_env("real").require_safe_test_position()
+
+
+def test_calibration_hard_limits(monkeypatch):
+    monkeypatch.setenv("DOBOT_CALIBRATION_MAX_STEP_MM", "5.1")
+    with pytest.raises(DobotConfigurationError, match="at most 5"):
+        DobotConfig.from_env("real")
