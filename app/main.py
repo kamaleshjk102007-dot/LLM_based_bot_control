@@ -330,7 +330,7 @@ def run(argv: list[str] | None = None) -> int:
     if plan.capability_checks:
         print("\nCapabilities:")
         for action, passed in plan.capability_checks.items():
-            print(f"{action} {'✓' if passed else '✗'}")
+            print(f"{action} {'PASS' if passed else 'FAIL'}")
     print(f"\nSafety:\n{'PASSED' if plan.safety_passed else 'NOT PASSED'}")
     if plan.adapter_type:
         print(f"\nAdapter:\n{plan.adapter_type}")
