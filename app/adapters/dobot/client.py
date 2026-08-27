@@ -340,8 +340,10 @@ class DobotLinkClient:
                 z=position.z,
                 r=position.r,
                 isQueued=True,
-                isWaitForFinish=True,
-                timeout=self.config.command_timeout_ms,
+                # DobotLink may never send the completion response for queued PTP
+                # commands. Accept the queue response immediately, then verify the
+                # live pose below with a bounded deadline.
+                isWaitForFinish=False,
             )
         except Exception as exc:
             stop_error = None
