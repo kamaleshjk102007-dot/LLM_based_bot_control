@@ -39,6 +39,10 @@ class DobotMagicianLiteAdapter(RobotAdapter):
             return False
         if any(task.action not in SUPPORTED_ACTIONS for task in command.tasks):
             return False
+        # A physical LLM MOVE must be isolated so no later task can obscure
+        # confirmation, execution, or final-pose verification.
+        if any(task.action is Action.MOVE for task in command.tasks) and len(command.tasks) != 1:
+            return False
         try:
             # Map every task before executing any task: multi-step commands fail closed.
             [map_task(task, self.config) for task in command.tasks]
@@ -65,23 +69,39 @@ class DobotMagicianLiteAdapter(RobotAdapter):
         results: list[str] = []
         try:
             for operation in operations:
-                self._confirmed(operation)
                 action = Action(operation["action"])
-                if action is Action.GET_STATUS:
-                    result = self.client.get_status()
-                elif action is Action.HOME:
-                    result = self.client.home()
-                elif action is Action.MOVE:
-                    result = self.client.move(DobotPosition(**operation["position"]))
-                elif action is Action.STOP:
-                    result = self.client.stop()
-                elif action is Action.GRIP:
-                    result = self.client.set_gripper(True)
-                elif action is Action.RELEASE:
-                    result = self.client.set_gripper(False)
-                else:  # protected by map_task, retained as a fail-closed guard
-                    raise RobotAdapterError(f"Unsupported DOBOT action: {action.value}")
+                if action is Action.MOVE:
+                    before, target = self.client.calibration_preview(
+                        operation["axis"], operation["delta_mm"]
+                    )
+                    confirmation = {
+                        **operation,
+                        "before": before.as_dict(),
+                        "target": target.as_dict(),
+                        "hard_max_step_mm": 1.0,
+                    }
+                    self._confirmed(confirmation)
+                    result = self.client.calibrate(
+                        operation["axis"], operation["delta_mm"], before
+                    )
+                else:
+                    self._confirmed(operation)
+                    if action is Action.GET_STATUS:
+                        result = self.client.get_status()
+                    elif action is Action.HOME:
+                        result = self.client.home()
+                    elif action is Action.STOP:
+                        result = self.client.stop()
+                    elif action is Action.GRIP:
+                        result = self.client.set_gripper(True)
+                    elif action is Action.RELEASE:
+                        result = self.client.set_gripper(False)
+                    else:  # protected by map_task, retained as a fail-closed guard
+                        raise RobotAdapterError(
+                            f"Unsupported DOBOT action: {action.value}"
+                        )
                 results.append(f"[DOBOT REAL] {action.value}: {result!r}")
+                continue
         except (DobotError, TimeoutError) as exc:
             raise RobotAdapterError(str(exc)) from exc
         except RobotAdapterError:
