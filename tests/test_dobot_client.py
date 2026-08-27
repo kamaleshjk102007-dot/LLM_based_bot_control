@@ -93,6 +93,10 @@ def test_lifecycle_and_verified_rpc_mapping():
     ):
         assert required in names
     assert names.count("GetPose") >= 5
+    ptp_call = next(kwargs for name, kwargs in lite.calls if name == "SetPTPCmd")
+    assert ptp_call["isQueued"] is True
+    assert ptp_call["isWaitForFinish"] is False
+    assert "timeout" not in ptp_call
     client.disconnect()
     assert client.state is ConnectionState.DISCONNECTED
 
