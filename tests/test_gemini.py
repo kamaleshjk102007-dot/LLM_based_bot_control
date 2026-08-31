@@ -47,6 +47,29 @@ def test_mocked_structured_response_is_validated():
     sdk_client.models.generate_content.assert_called_once()
 
 
+def test_linear_units_repair_provider_rotate_misclassification():
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = SimpleNamespace(
+        parsed={
+            "version": "1.0",
+            "tasks": [{
+                "action": "ROTATE",
+                "direction": "downward",
+                "distance": 77,
+                "unit": "centimeter",
+            }],
+        },
+        text=None,
+    )
+    command = GeminiCommandClient(settings(), client=sdk_client).generate_command(
+        "turn downward 77 centimeter"
+    )
+    assert command.tasks[0].action.value == "MOVE"
+    assert command.tasks[0].direction == "downward"
+    assert command.tasks[0].distance == 77
+    assert command.tasks[0].unit == "centimeter"
+
+
 def test_invalid_mocked_response_fails_safely():
     sdk_client = Mock()
     sdk_client.models.generate_content.return_value = SimpleNamespace(
