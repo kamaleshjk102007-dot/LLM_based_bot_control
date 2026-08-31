@@ -26,7 +26,9 @@ missing capability. Omit optional fields the user did not specify. If a request 
 ambiguous, unsafe, unsupported, or cannot be represented by the schema, do not guess.
 
 Supported actions: MOVE, ROTATE, STOP, HOME, PICK, PLACE, GRIP, RELEASE, NAVIGATE,
-GET_STATUS. Return only schema-conforming structured data.
+GET_STATUS. Linear units such as millimeters, centimeters, meters, and inches always
+describe MOVE distance, even when the user says "turn". ROTATE requires an angular
+value in degrees or radians. Return only schema-conforming structured data.
 """
 
 _UNSUPPORTED_PROVIDER_KEYWORDS = {
@@ -70,6 +72,33 @@ def gemini_response_json_schema() -> dict[str, Any]:
     """Derive the provider schema from the authoritative Pydantic model."""
 
     return _simplify_json_schema(UniversalCommand.model_json_schema())
+
+
+_LINEAR_UNITS = {
+    "mm", "millimeter", "millimeters", "millimetre", "millimetres",
+    "cm", "centimeter", "centimeters", "centimetre", "centimetres",
+    "m", "meter", "meters", "metre", "metres",
+    "in", "inch", "inches",
+}
+
+
+def _repair_linear_motion(payload: Any) -> Any:
+    """Correct a provider ROTATE classification when the fields are linear."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("tasks"), list):
+        return payload
+    repaired = {**payload, "tasks": []}
+    for item in payload["tasks"]:
+        task = dict(item) if isinstance(item, dict) else item
+        if (
+            isinstance(task, dict)
+            and task.get("action") == "ROTATE"
+            and "distance" in task
+            and "angle" not in task
+            and str(task.get("unit", "")).strip().lower() in _LINEAR_UNITS
+        ):
+            task["action"] = "MOVE"
+        repaired["tasks"].append(task)
+    return repaired
 
 
 class GeminiCommandError(RuntimeError):
@@ -141,6 +170,7 @@ class GeminiCommandClient:
 
         try:
             # Always perform a second application-side validation, even when the SDK parsed it.
-            return validate_command(parsed if parsed is not None else raw)
+            payload = _repair_linear_motion(parsed) if parsed is not None else raw
+            return validate_command(payload)
         except CommandValidationError as exc:
             raise GeminiCommandError(str(exc)) from exc
