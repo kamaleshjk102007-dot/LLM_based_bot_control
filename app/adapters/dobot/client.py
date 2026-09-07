@@ -425,13 +425,37 @@ class DobotLinkClient:
         self.config.safety_limits.validate(target)
         return before, target
 
+    def rotation_preview(
+        self, delta_degrees: float
+    ) -> tuple[DobotPosition, DobotPosition]:
+        """Create a bounded R target from the live Cartesian pose."""
+        if (
+            delta_degrees == 0
+            or abs(delta_degrees) > self.config.rotation_max_step_degrees
+        ):
+            raise DobotSafetyError(
+                "R rotation must be non-zero and no more than "
+                f"{self.config.rotation_max_step_degrees:g} degrees."
+            )
+        if self.config.safety_limits is None:
+            raise DobotConfigurationError(
+                "R rotation is disabled until all DOBOT_MIN/MAX_X/Y/Z/R "
+                "limits are configured."
+            )
+        before = self._read_position()
+        values = before.as_dict()
+        values["r"] += delta_degrees
+        target = DobotPosition(**values)
+        self.config.safety_limits.validate(target)
+        return before, target
+
     def calibrate(
         self,
         axis: str,
         delta_mm: float,
         expected_before: DobotPosition,
     ) -> dict[str, Any]:
-        """Execute one low-speed, single-axis calibration move."""
+        """Execute one low-speed, verified Cartesian or R calibration."""
         current = self._read_position()
         if not self._target_matches(current, expected_before):
             raise DobotSafetyError(
@@ -459,9 +483,14 @@ class DobotLinkClient:
                 f"Low-speed calibration setup failed: {speed_result!r}"
             )
         result = self.move(target)
+        delta_field = (
+            "requested_delta_degrees"
+            if normalized_axis == "r"
+            else "requested_delta_mm"
+        )
         result.update({
             "calibration_axis": normalized_axis,
-            "requested_delta_mm": delta_mm,
+            delta_field: delta_mm,
             "speed_ratio": self.config.calibration_speed_ratio,
             "acceleration_ratio": self.config.calibration_acceleration_ratio,
         })
