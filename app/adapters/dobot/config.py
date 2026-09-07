@@ -70,6 +70,7 @@ class DobotConfig:
     rotation_tolerance_degrees: float = 1.0
     verification_samples: int = 3
     calibration_max_step_mm: float = 5.0
+    rotation_max_step_degrees: float = 5.0
     calibration_speed_ratio: float = 5.0
     calibration_acceleration_ratio: float = 5.0
     test_position: DobotPosition | None = None
@@ -141,6 +142,9 @@ class DobotConfig:
                 calibration_max_step_mm=float(
                     os.getenv("DOBOT_CALIBRATION_MAX_STEP_MM", "5")
                 ),
+                rotation_max_step_degrees=float(
+                    os.getenv("DOBOT_ROTATION_MAX_STEP_DEGREES", "5")
+                ),
                 calibration_speed_ratio=float(
                     os.getenv("DOBOT_CALIBRATION_SPEED_RATIO", "5")
                 ),
@@ -183,6 +187,11 @@ class DobotConfig:
         if not 0 < config.calibration_max_step_mm <= 5:
             raise DobotConfigurationError(
                 "DOBOT_CALIBRATION_MAX_STEP_MM must be greater than 0 and at most 5."
+            )
+        if not 0 < config.rotation_max_step_degrees <= 5:
+            raise DobotConfigurationError(
+                "DOBOT_ROTATION_MAX_STEP_DEGREES must be greater than 0 "
+                "and at most 5."
             )
         if not 1 <= config.calibration_speed_ratio <= 10:
             raise DobotConfigurationError(
