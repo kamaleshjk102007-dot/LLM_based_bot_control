@@ -16,6 +16,7 @@ from cartesian_motion import (
     displacement_report,
     requested_axis_metres,
 )
+from rotation_motion import angular_report, requested_r_radians
 
 
 TIME_STEP = 32
@@ -65,6 +66,10 @@ class Simulator:
                 + ", ".join(missing_visuals)
             )
         self.targets = dict(HOME)
+        self.wrist_sensor = self.robot.getDevice("wrist_sensor")
+        if self.wrist_sensor is None:
+            raise RuntimeError("Webots world is missing wrist_sensor.")
+        self.wrist_sensor.enable(TIME_STEP)
         self.stopped = False
         for name, motor in self.motors.items():
             motor.setVelocity(0.7)
@@ -323,6 +328,68 @@ class Simulator:
         self.stopped = False
         self.set_targets()
 
+    def show_rotation_indicator(self, report):
+        self.robot.setLabel(
+            0,
+            "ROTATION R: "
+            + ("PASS" if report["verified"] else "FAIL")
+            + "\n"
+            f"Start R: {report['before_r_deg']:+.3f} deg\n"
+            f"Final R: {report['after_r_deg']:+.3f} deg\n"
+            f"Requested: {report['requested_r_deg']:+.3f} deg\n"
+            f"Measured: {report['actual_r_deg']:+.3f} deg\n"
+            f"Error: {report['error_deg']:+.3f} deg",
+            0.015,
+            0.04,
+            0.035,
+            0xFFFFFF,
+            0.0,
+            "Arial",
+        )
+
+    def rotate_wrist(self, requested_r_rad):
+        hard_limit = math.radians(5.0)
+        if abs(requested_r_rad) > hard_limit + 1e-12:
+            raise ValueError("Webots R ROTATE is limited to 5 degrees.")
+        self.advance(10)
+        before_r = self.wrist_sensor.getValue()
+        before_position = self.end_effector_position()
+        target_r = before_r + requested_r_rad
+        low, high = LIMITS["wrist_motor"]
+        if not low <= target_r <= high:
+            raise ValueError("Requested R rotation exceeds the wrist joint limit.")
+        original_target = self.targets["wrist_motor"]
+
+        self.targets["wrist_motor"] = target_r
+        self.motors["wrist_motor"].setVelocity(0.3)
+        self.motors["wrist_motor"].setPosition(target_r)
+        for _ in range(120):
+            if abs(self.wrist_sensor.getValue() - target_r) <= math.radians(0.10):
+                break
+            self.advance(1)
+        self.advance(10)
+
+        after_r = self.wrist_sensor.getValue()
+        after_position = self.end_effector_position()
+        report = angular_report(before_r, after_r, requested_r_rad)
+        report["translation_drift_mm"] = math.dist(
+            before_position, after_position
+        ) * 1000.0
+        report["verified"] = bool(
+            report["verified"] and report["translation_drift_mm"] <= 0.75
+        )
+        self.show_rotation_indicator(report)
+        if not report["verified"]:
+            self.targets["wrist_motor"] = original_target
+            self.motors["wrist_motor"].setPosition(original_target)
+            self.advance(40)
+            raise ValueError(
+                "Wrist ROTATE verification failed: "
+                + json.dumps(report, sort_keys=True)
+            )
+        self.stopped = False
+        return report
+
     def execute_task(self, task):
         action = task.get("action")
         if action == "MOVE":
@@ -333,6 +400,12 @@ class Simulator:
                     + json.dumps(report, sort_keys=True)
                 )
         elif action == "ROTATE":
+            requested_r_rad = requested_r_radians(task)
+            if requested_r_rad is not None:
+                report = self.rotate_wrist(requested_r_rad)
+                return "[WEBOTS] ROTATE R verified " + json.dumps(
+                    report, sort_keys=True
+                )
             angle = math.radians(float(task.get("angle", 0.0)))
             direction = str(task.get("direction", "left")).lower()
             self.targets["base_motor"] += angle if direction == "left" else -angle
@@ -361,6 +434,9 @@ class Simulator:
                 axis: round(position[index] * 1000.0, 4)
                 for index, axis in enumerate(("x", "y", "z"))
             },
+            "measured_wrist_r_degrees": round(
+                math.degrees(self.wrist_sensor.getValue()), 4
+            ),
             "joint_targets_degrees": {
                 name: round(math.degrees(value), 2)
                 for name, value in self.targets.items()
