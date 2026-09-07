@@ -138,6 +138,46 @@ def test_negative_cartesian_distance_moves_sign_to_direction():
     assert command.tasks[0].distance == 5.0
 
 
+def test_multi_step_explicit_axes_are_mapped_in_order():
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = SimpleNamespace(
+        parsed={
+            "version": "1.0",
+            "tasks": [
+                {"action": "MOVE", "direction": "X", "distance": 5, "unit": "mm"},
+                {"action": "MOVE", "direction": "X", "distance": 5, "unit": "mm"},
+                {"action": "MOVE", "direction": "X", "distance": 5, "unit": "mm"},
+            ],
+        },
+        text=None,
+    )
+    command = GeminiCommandClient(settings(), client=sdk_client).generate_command(
+        "MOVE +5 mm on X, then MOVE +5 mm on Y, then MOVE +5 mm on Z."
+    )
+    assert [task.direction for task in command.tasks] == ["X", "Y", "Z"]
+    assert [task.distance for task in command.tasks] == [5.0, 5.0, 5.0]
+
+
+def test_multi_step_negative_axes_keep_positive_distances():
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = SimpleNamespace(
+        parsed={
+            "version": "1.0",
+            "tasks": [
+                {"action": "MOVE", "direction": "Z", "distance": -5, "unit": "mm"},
+                {"action": "MOVE", "direction": "Y", "distance": -5, "unit": "mm"},
+                {"action": "MOVE", "direction": "X", "distance": -5, "unit": "mm"},
+            ],
+        },
+        text=None,
+    )
+    command = GeminiCommandClient(settings(), client=sdk_client).generate_command(
+        "MOVE -5 mm on Z, then MOVE -5 mm on Y, then MOVE -5 mm on X."
+    )
+    assert [task.direction for task in command.tasks] == ["-Z", "-Y", "-X"]
+    assert [task.distance for task in command.tasks] == [5.0, 5.0, 5.0]
+
+
 def test_missing_axis_is_not_invented_for_ambiguous_move():
     sdk_client = Mock()
     sdk_client.models.generate_content.return_value = SimpleNamespace(
