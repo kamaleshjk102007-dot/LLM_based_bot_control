@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -83,6 +84,28 @@ def test_explicit_x_axis_is_restored_when_provider_omits_it():
             }],
         },
         text=None,
+    )
+    command = GeminiCommandClient(settings(), client=sdk_client).generate_command(
+        "MOVE +5 mm on X"
+    )
+    assert command.tasks[0].action.value == "MOVE"
+    assert command.tasks[0].direction == "X"
+    assert command.tasks[0].distance == 5.0
+
+
+def test_explicit_x_axis_is_restored_from_raw_json_response():
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = SimpleNamespace(
+        parsed=None,
+        text=json.dumps({
+            "version": "1.0",
+            "tasks": [{
+                "action": "MOVE",
+                "distance": 5.0,
+                "unit": "mm",
+                "parameters": {},
+            }],
+        }),
     )
     command = GeminiCommandClient(settings(), client=sdk_client).generate_command(
         "MOVE +5 mm on X"
