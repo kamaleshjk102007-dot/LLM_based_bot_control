@@ -7,6 +7,7 @@ DOBOT_CAPABILITIES = frozenset({
     Action.GET_STATUS,
     Action.HOME,
     Action.MOVE,
+    Action.ROTATE,
     Action.STOP,
     Action.GRIP,
     Action.RELEASE,
