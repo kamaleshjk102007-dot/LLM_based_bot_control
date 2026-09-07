@@ -1,3 +1,6 @@
+import ast
+from pathlib import Path
+
 import pytest
 
 from simulation.webots.controllers.llm_robot_controller.cartesian_motion import (
@@ -69,3 +72,13 @@ def test_world_exposes_supervisor_measurement_nodes():
     assert "supervisor TRUE" in world
     for name in ("ARM_BASE", "SHOULDER_LINK", "ELBOW_LINK", "END_EFFECTOR"):
         assert f"DEF {name} Solid" in world
+
+
+def test_webots_controller_is_valid_python():
+    source = Path(
+        "simulation/webots/controllers/llm_robot_controller/"
+        "llm_robot_controller.py"
+    ).read_text(encoding="utf-8")
+    ast.parse(source)
+    assert "requested_x_metres(task)" in source
+    assert "displacement_report(" in source
