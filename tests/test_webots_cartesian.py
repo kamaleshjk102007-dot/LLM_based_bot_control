@@ -72,6 +72,9 @@ def test_world_exposes_supervisor_measurement_nodes():
     assert "supervisor TRUE" in world
     for name in ("ARM_BASE", "SHOULDER_LINK", "ELBOW_LINK", "END_EFFECTOR"):
         assert f"DEF {name} Solid" in world
+    assert "DEF MOVE_START_MARKER Transform" in world
+    assert "DEF MOVE_END_MARKER Transform" in world
+    assert "DEF MOVE_TRAJECTORY_COORD Coordinate" in world
 
 
 def test_webots_controller_is_valid_python():
@@ -82,3 +85,7 @@ def test_webots_controller_is_valid_python():
     ast.parse(source)
     assert "requested_x_metres(task)" in source
     assert "displacement_report(" in source
+    assert "show_motion_indicator(before, after, report)" in source
+    assert "setSFVec3f(start)" in source
+    assert "setSFVec3f(end)" in source
+    assert "self.robot.setLabel(" in source
