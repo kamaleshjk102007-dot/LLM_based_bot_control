@@ -10,11 +10,12 @@ from app.commands.models import Action, Task
 
 SUPPORTED_ACTIONS = frozenset({
     Action.GET_STATUS, Action.HOME, Action.MOVE,
-    Action.STOP, Action.GRIP, Action.RELEASE,
+    Action.ROTATE, Action.STOP, Action.GRIP, Action.RELEASE,
 })
 
 # This hard limit cannot be increased through an environment variable.
 REAL_LLM_MAX_STEP_MM = 5.0
+REAL_LLM_MAX_ROTATION_DEGREES = 5.0
 _CARTESIAN_DIRECTIONS = {
     "x": ("x", 1.0),
     "+x": ("x", 1.0),
@@ -68,6 +69,37 @@ def _map_relative_move(task: Task, config: DobotConfig) -> dict[str, Any]:
     }
 
 
+def _map_relative_rotation(task: Task, config: DobotConfig) -> dict[str, Any]:
+    direction = (task.direction or "").strip().lower()
+    directions = {
+        "r": 1.0, "+r": 1.0, "r+": 1.0,
+        "-r": -1.0, "r-": -1.0,
+    }
+    if direction not in directions:
+        raise DobotUnsupportedActionError(
+            "Real LLM ROTATE supports only an explicit R or -R direction."
+        )
+    if task.angle is None or (task.unit or "degrees").strip().lower() not in {
+        "degree", "degrees", "deg",
+    }:
+        raise DobotUnsupportedActionError(
+            "Real LLM R rotation requires an explicit angle in degrees."
+        )
+    max_step = min(
+        config.rotation_max_step_degrees,
+        REAL_LLM_MAX_ROTATION_DEGREES,
+    )
+    if task.angle > max_step:
+        raise DobotUnsupportedActionError(
+            f"Real LLM R rotation is limited to {max_step:g} degrees per command."
+        )
+    return {
+        "action": Action.ROTATE.value,
+        "axis": "r",
+        "delta_degrees": directions[direction] * task.angle,
+    }
+
+
 def map_task(task: Task, config: DobotConfig) -> dict[str, Any]:
     if task.action not in SUPPORTED_ACTIONS:
         raise DobotUnsupportedActionError(
@@ -75,6 +107,8 @@ def map_task(task: Task, config: DobotConfig) -> dict[str, Any]:
         )
     if task.action is Action.MOVE:
         return _map_relative_move(task, config)
+    if task.action is Action.ROTATE:
+        return _map_relative_rotation(task, config)
 
     operation: dict[str, Any] = {"action": task.action.value}
     if task.action is Action.GRIP:
