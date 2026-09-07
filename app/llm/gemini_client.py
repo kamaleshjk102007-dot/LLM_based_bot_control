@@ -29,8 +29,10 @@ ambiguous, unsafe, unsupported, or cannot be represented by the schema, do not g
 
 Supported actions: MOVE, ROTATE, STOP, HOME, PICK, PLACE, GRIP, RELEASE, NAVIGATE,
 GET_STATUS. Linear units such as millimeters, centimeters, meters, and inches always
-describe MOVE distance, even when the user says "turn". ROTATE requires an angular
-value in degrees or radians. Return only schema-conforming structured data.
+describe MOVE distance, even when the user says "turn". For signed Cartesian movement,
+put the sign on direction (for example, direction "-X" and distance 5); distance must
+always be positive. ROTATE requires an angular value in degrees or radians. Return only
+schema-conforming structured data.
 """
 
 _UNSUPPORTED_PROVIDER_KEYWORDS = {
@@ -89,6 +91,14 @@ _EXPLICIT_AXIS = re.compile(
     re.IGNORECASE,
 )
 
+_EXPLICIT_SIGNED_AXIS_DISTANCE = re.compile(
+    r"([+-])\s*(\d+(?:\.\d+)?)\s*"
+    r"(?:mm|millimeters?|millimetres?|cm|centimeters?|centimetres?|"
+    r"m|meters?|metres?|in|inches?)\s*"
+    r"(?:on|along)\s*[+-]?\s*([xyz])\b",
+    re.IGNORECASE,
+)
+
 
 def _repair_explicit_axis(payload: Any, instruction: str) -> Any:
     """Restore an explicitly written Cartesian axis without guessing."""
@@ -101,17 +111,35 @@ def _repair_explicit_axis(payload: Any, instruction: str) -> Any:
     if axis.startswith("+"):
         axis = axis[1:]
 
+    signed_distance = _EXPLICIT_SIGNED_AXIS_DISTANCE.search(instruction)
+    explicit_magnitude = None
+    if signed_distance is not None:
+        signed_axis = signed_distance.group(3).upper()
+        if signed_axis == axis.lstrip("+-"):
+            explicit_magnitude = float(signed_distance.group(2))
+            axis = ("-" if signed_distance.group(1) == "-" else "") + signed_axis
+
     repaired = {**payload, "tasks": []}
     for item in payload["tasks"]:
         task = dict(item) if isinstance(item, dict) else item
-        if (
-            isinstance(task, dict)
-            and task.get("action") == "MOVE"
-            and not task.get("direction")
-            and not task.get("position")
-            and not task.get("target")
-        ):
-            task["direction"] = axis
+        if isinstance(task, dict) and task.get("action") == "MOVE":
+            if (
+                not task.get("direction")
+                and not task.get("position")
+                and not task.get("target")
+            ):
+                task["direction"] = axis
+            if explicit_magnitude is not None:
+                try:
+                    provider_magnitude = abs(float(task.get("distance")))
+                except (TypeError, ValueError):
+                    provider_magnitude = None
+                if (
+                    provider_magnitude is not None
+                    and abs(provider_magnitude - explicit_magnitude) <= 1e-9
+                ):
+                    task["direction"] = axis
+                    task["distance"] = explicit_magnitude
         repaired["tasks"].append(task)
     return repaired
 
