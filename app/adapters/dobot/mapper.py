@@ -15,13 +15,28 @@ SUPPORTED_ACTIONS = frozenset({
 
 # This hard limit cannot be increased through an environment variable.
 REAL_LLM_MAX_STEP_MM = 5.0
-_VERTICAL_DIRECTIONS = {
-    "up": 1.0,
-    "upward": 1.0,
-    "upwards": 1.0,
-    "down": -1.0,
-    "downward": -1.0,
-    "downwards": -1.0,
+_CARTESIAN_DIRECTIONS = {
+    "x": ("x", 1.0),
+    "+x": ("x", 1.0),
+    "x+": ("x", 1.0),
+    "-x": ("x", -1.0),
+    "x-": ("x", -1.0),
+    "y": ("y", 1.0),
+    "+y": ("y", 1.0),
+    "y+": ("y", 1.0),
+    "-y": ("y", -1.0),
+    "y-": ("y", -1.0),
+    "z": ("z", 1.0),
+    "+z": ("z", 1.0),
+    "z+": ("z", 1.0),
+    "-z": ("z", -1.0),
+    "z-": ("z", -1.0),
+    "up": ("z", 1.0),
+    "upward": ("z", 1.0),
+    "upwards": ("z", 1.0),
+    "down": ("z", -1.0),
+    "downward": ("z", -1.0),
+    "downwards": ("z", -1.0),
 }
 _MM_UNITS = {"mm", "millimeter", "millimeters", "millimetre", "millimetres"}
 
@@ -29,12 +44,12 @@ _MM_UNITS = {"mm", "millimeter", "millimeters", "millimetre", "millimetres"}
 def _map_relative_move(task: Task, config: DobotConfig) -> dict[str, Any]:
     if task.position is not None or task.target is not None:
         raise DobotUnsupportedActionError(
-            "Real LLM MOVE accepts only an explicit upward or downward distance."
+            "Real LLM MOVE accepts only an explicit single-axis Cartesian distance."
         )
     direction = (task.direction or "").strip().lower()
-    if direction not in _VERTICAL_DIRECTIONS:
+    if direction not in _CARTESIAN_DIRECTIONS:
         raise DobotUnsupportedActionError(
-            "Real LLM MOVE currently supports only upward or downward Z movement."
+            "Real LLM MOVE supports only explicit X, Y, Z, upward, or downward movement."
         )
     if task.distance is None or (task.unit or "").strip().lower() not in _MM_UNITS:
         raise DobotUnsupportedActionError(
@@ -45,10 +60,11 @@ def _map_relative_move(task: Task, config: DobotConfig) -> dict[str, Any]:
         raise DobotUnsupportedActionError(
             f"Real LLM MOVE is limited to {max_step:g} mm per command."
         )
+    axis, sign = _CARTESIAN_DIRECTIONS[direction]
     return {
         "action": Action.MOVE.value,
-        "axis": "z",
-        "delta_mm": _VERTICAL_DIRECTIONS[direction] * task.distance,
+        "axis": axis,
+        "delta_mm": sign * task.distance,
     }
 
 
