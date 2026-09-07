@@ -154,6 +154,7 @@ Robot {
                         jointParameters HingeJointParameters { axis 0 0 1 anchor 0 0 0.15 }
                         device [
                           RotationalMotor { name "wrist_motor" minPosition -2.531 maxPosition 2.531 maxTorque 8 }
+                          PositionSensor { name "wrist_sensor" }
                         ]
                         endPoint DEF END_EFFECTOR Solid {
                           translation 0 0 0.15
