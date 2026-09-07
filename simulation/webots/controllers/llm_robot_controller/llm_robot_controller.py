@@ -201,6 +201,49 @@ class Simulator:
         self.stopped = False
         return report
 
+    def move_cartesian_z(self, requested_z_m):
+        if abs(requested_z_m) > 0.020:
+            raise ValueError("Webots Cartesian Z MOVE is limited to 20 mm.")
+        self.advance(20)
+        before = self.end_effector_position()
+        desired = (before[0], before[2] + requested_z_m)
+        original_targets = dict(self.targets)
+
+        for _ in range(80):
+            current = self.end_effector_position()
+            error = (desired[0] - current[0], desired[1] - current[2])
+            if math.hypot(*error) <= 0.00075:
+                break
+            shoulder_step, elbow_step = damped_xz_step(
+                self.xz_columns(current), error
+            )
+            self.targets["shoulder_motor"] += shoulder_step
+            self.targets["elbow_motor"] += elbow_step
+            self.set_targets()
+            self.advance(8)
+
+        self.advance(20)
+        after = self.end_effector_position()
+        report = axis_displacement_report(before, after, "z", requested_z_m)
+        report["x_drift_mm"] = (after[0] - before[0]) * 1000.0
+        report["y_drift_mm"] = (after[1] - before[1]) * 1000.0
+        report["verified"] = bool(
+            report["verified"]
+            and abs(report["x_drift_mm"]) <= report["tolerance_mm"]
+            and abs(report["y_drift_mm"]) <= report["tolerance_mm"]
+        )
+        self.show_motion_indicator(before, after, report)
+        if not report["verified"]:
+            self.targets = original_targets
+            self.set_targets()
+            self.advance(40)
+            raise ValueError(
+                "Cartesian MOVE verification failed: "
+                + json.dumps(report, sort_keys=True)
+            )
+        self.stopped = False
+        return report
+
     def move_cartesian_y(self, requested_y_m):
         if abs(requested_y_m) > 0.020:
             raise ValueError("Webots Cartesian Y MOVE is limited to 20 mm.")
@@ -251,6 +294,8 @@ class Simulator:
                 return self.move_cartesian_x(requested_m)
             if axis == "y":
                 return self.move_cartesian_y(requested_m)
+            if axis == "z":
+                return self.move_cartesian_z(requested_m)
         direction = str(task.get("direction", "")).lower()
         distance = float(task.get("distance", 10.0))
         unit = str(task.get("unit", "centimeters")).lower()
