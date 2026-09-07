@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -203,9 +204,15 @@ class GeminiCommandClient:
 
         try:
             # Always perform a second application-side validation, even when the SDK parsed it.
-            payload = _repair_linear_motion(parsed) if parsed is not None else raw
             if parsed is not None:
-                payload = _repair_explicit_axis(payload, instruction)
+                payload = parsed
+            else:
+                try:
+                    payload = json.loads(raw)
+                except (TypeError, json.JSONDecodeError):
+                    payload = raw
+            payload = _repair_linear_motion(payload)
+            payload = _repair_explicit_axis(payload, instruction)
             return validate_command(payload)
         except CommandValidationError as exc:
             raise GeminiCommandError(str(exc)) from exc
