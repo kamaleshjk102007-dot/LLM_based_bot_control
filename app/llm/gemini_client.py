@@ -101,8 +101,48 @@ _EXPLICIT_SIGNED_AXIS_DISTANCE = re.compile(
 
 
 def _repair_explicit_axis(payload: Any, instruction: str) -> Any:
-    """Restore an explicitly written Cartesian axis without guessing."""
+    """Map explicitly written Cartesian clauses to MOVE tasks in order."""
     if not isinstance(payload, dict) or not isinstance(payload.get("tasks"), list):
+        return payload
+
+    directives = []
+    for match in _EXPLICIT_SIGNED_AXIS_DISTANCE.finditer(instruction):
+        sign, magnitude, axis = match.groups()
+        normalized_axis = axis.upper()
+        if sign == "-":
+            normalized_axis = "-" + normalized_axis
+        directives.append((normalized_axis, float(magnitude)))
+
+    move_indices = [
+        index
+        for index, item in enumerate(payload["tasks"])
+        if isinstance(item, dict) and item.get("action") == "MOVE"
+    ]
+
+    # Sequential repair is safe only when each MOVE has one explicit Cartesian
+    # clause. This prevents the first axis from leaking into later tasks.
+    if directives and len(directives) == len(move_indices):
+        repaired = {**payload, "tasks": [
+            dict(item) if isinstance(item, dict) else item
+            for item in payload["tasks"]
+        ]}
+        for task_index, (axis, magnitude) in zip(move_indices, directives):
+            task = repaired["tasks"][task_index]
+            task["direction"] = axis
+            try:
+                provider_magnitude = abs(float(task.get("distance")))
+            except (TypeError, ValueError):
+                provider_magnitude = None
+            if (
+                provider_magnitude is not None
+                and abs(provider_magnitude - magnitude) <= 1e-9
+            ):
+                task["distance"] = magnitude
+        return repaired
+
+    # Preserve the conservative single-task fallback when Gemini omitted only
+    # the axis and the instruction contains one unambiguous "on/along X/Y/Z".
+    if len(move_indices) != 1:
         return payload
     match = _EXPLICIT_AXIS.search(instruction)
     if match is None:
@@ -110,37 +150,17 @@ def _repair_explicit_axis(payload: Any, instruction: str) -> Any:
     axis = match.group(1).replace(" ", "").upper()
     if axis.startswith("+"):
         axis = axis[1:]
-
-    signed_distance = _EXPLICIT_SIGNED_AXIS_DISTANCE.search(instruction)
-    explicit_magnitude = None
-    if signed_distance is not None:
-        signed_axis = signed_distance.group(3).upper()
-        if signed_axis == axis.lstrip("+-"):
-            explicit_magnitude = float(signed_distance.group(2))
-            axis = ("-" if signed_distance.group(1) == "-" else "") + signed_axis
-
-    repaired = {**payload, "tasks": []}
-    for item in payload["tasks"]:
-        task = dict(item) if isinstance(item, dict) else item
-        if isinstance(task, dict) and task.get("action") == "MOVE":
-            if (
-                not task.get("direction")
-                and not task.get("position")
-                and not task.get("target")
-            ):
-                task["direction"] = axis
-            if explicit_magnitude is not None:
-                try:
-                    provider_magnitude = abs(float(task.get("distance")))
-                except (TypeError, ValueError):
-                    provider_magnitude = None
-                if (
-                    provider_magnitude is not None
-                    and abs(provider_magnitude - explicit_magnitude) <= 1e-9
-                ):
-                    task["direction"] = axis
-                    task["distance"] = explicit_magnitude
-        repaired["tasks"].append(task)
+    repaired = {**payload, "tasks": [
+        dict(item) if isinstance(item, dict) else item
+        for item in payload["tasks"]
+    ]}
+    task = repaired["tasks"][move_indices[0]]
+    if (
+        not task.get("direction")
+        and not task.get("position")
+        and not task.get("target")
+    ):
+        task["direction"] = axis
     return repaired
 
 
