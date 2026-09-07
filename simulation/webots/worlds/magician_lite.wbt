@@ -17,6 +17,48 @@ TexturedBackgroundLight {}
 RectangleArena {
   floorSize 1.2 1.2
 }
+DEF MOVE_START_MARKER Transform {
+  translation 0 0 -10
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.1 1 0.1
+        emissiveColor 0.05 0.5 0.05
+        roughness 0.3
+      }
+      geometry Sphere { radius 0.002 }
+    }
+  ]
+}
+DEF MOVE_END_MARKER Transform {
+  translation 0 0 -10
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0.1 0.1
+        emissiveColor 0.5 0.05 0.05
+        roughness 0.3
+      }
+      geometry Sphere { radius 0.002 }
+    }
+  ]
+}
+DEF MOVE_TRAJECTORY Shape {
+  appearance PBRAppearance {
+    baseColor 1 0.8 0
+    emissiveColor 0.5 0.35 0
+    roughness 0.3
+  }
+  geometry IndexedLineSet {
+    coord DEF MOVE_TRAJECTORY_COORD Coordinate {
+      point [
+        0 0 -10
+        0 0 -10
+      ]
+    }
+    coordIndex [ 0 1 -1 ]
+  }
+}
 Robot {
   name "Virtual Magician Lite"
   controller "llm_robot_controller"
