@@ -102,33 +102,34 @@ class Simulator:
         )
 
     def show_motion_indicator(self, before, after, report):
-        # Lift both markers equally so they remain visible above the tool.
-        # Their relative displacement and trajectory length stay exact.
-        visual_offset = (0.0, 0.0, 0.04)
-        start = [value + offset for value, offset in zip(before, visual_offset)]
-        end = [value + offset for value, offset in zip(after, visual_offset)]
+        # Pins are anchored at the exact measured positions. Their tops and the
+        # trajectory are lifted equally for visibility, preserving 5 mm spacing.
+        marker_height = 0.04
         self.visual_nodes["MOVE_START_MARKER"].getField(
             "translation"
-        ).setSFVec3f(start)
+        ).setSFVec3f(list(before))
         self.visual_nodes["MOVE_END_MARKER"].getField(
             "translation"
-        ).setSFVec3f(end)
+        ).setSFVec3f(list(after))
+        start_top = [before[0], before[1], before[2] + marker_height]
+        end_top = [after[0], after[1], after[2] + marker_height]
         points = self.visual_nodes["MOVE_TRAJECTORY_COORD"].getField("point")
-        points.setMFVec3f(0, start)
-        points.setMFVec3f(1, end)
+        points.setMFVec3f(0, start_top)
+        points.setMFVec3f(1, end_top)
         self.robot.setLabel(
             0,
-            "Cartesian X movement\\n"
-            f"GREEN start: {report['before_mm'][0]:.3f} mm\\n"
-            f"RED final: {report['after_mm'][0]:.3f} mm\\n"
-            f"Requested: {report['requested_x_mm']:+.3f} mm\\n"
-            f"Measured: {report['actual_x_mm']:+.3f} mm\\n"
-            f"Error: {report['error_mm']:+.3f} mm  "
-            f"Verified: {report['verified']}\\n"
-            "Yellow line = measured trajectory; markers lifted 40 mm",
-            0.01,
-            0.05,
-            0.055,
+            "CARTESIAN X: "
+            + ("PASS" if report["verified"] else "FAIL")
+            + "\n"
+            f"GREEN start X: {report['before_mm'][0]:.3f} mm\n"
+            f"RED final X: {report['after_mm'][0]:.3f} mm\n"
+            f"Requested: {report['requested_x_mm']:+.3f} mm\n"
+            f"Measured: {report['actual_x_mm']:+.3f} mm\n"
+            f"Error: {report['error_mm']:+.3f} mm\n"
+            "Yellow line: exact measured trajectory",
+            0.015,
+            0.04,
+            0.035,
             0xFFFFFF,
             0.0,
             "Arial",
