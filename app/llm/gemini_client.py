@@ -31,7 +31,8 @@ Supported actions: MOVE, ROTATE, STOP, HOME, PICK, PLACE, GRIP, RELEASE, NAVIGAT
 GET_STATUS. Linear units such as millimeters, centimeters, meters, and inches always
 describe MOVE distance, even when the user says "turn". For signed Cartesian movement,
 put the sign on direction (for example, direction "-X" and distance 5); distance must
-always be positive. ROTATE requires an angular value in degrees or radians. Return only
+always be positive. For signed wrist rotation, use direction "R" or "-R" and keep angle
+positive. ROTATE requires an angular value in degrees or radians. Return only
 schema-conforming structured data.
 """
 
@@ -99,6 +100,13 @@ _EXPLICIT_SIGNED_AXIS_DISTANCE = re.compile(
     re.IGNORECASE,
 )
 
+_EXPLICIT_SIGNED_R_ROTATION = re.compile(
+    r"([+-])\s*(\d+(?:\.\d+)?)\s*"
+    r"(degrees?|deg|radians?|rad|°)\s*"
+    r"(?:on|about|around)\s*(?:the\s*)?r\b",
+    re.IGNORECASE,
+)
+
 
 def _repair_explicit_axis(payload: Any, instruction: str) -> Any:
     """Map explicitly written Cartesian clauses to MOVE tasks in order."""
@@ -161,6 +169,42 @@ def _repair_explicit_axis(payload: Any, instruction: str) -> Any:
         and not task.get("target")
     ):
         task["direction"] = axis
+    return repaired
+
+
+def _repair_explicit_r_rotation(payload: Any, instruction: str) -> Any:
+    """Map explicit signed R clauses to ROTATE tasks while keeping angles positive."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("tasks"), list):
+        return payload
+    directives = list(_EXPLICIT_SIGNED_R_ROTATION.finditer(instruction))
+    rotate_indices = [
+        index
+        for index, item in enumerate(payload["tasks"])
+        if isinstance(item, dict) and item.get("action") == "ROTATE"
+    ]
+    if not directives or len(directives) != len(rotate_indices):
+        return payload
+
+    repaired = {**payload, "tasks": [
+        dict(item) if isinstance(item, dict) else item
+        for item in payload["tasks"]
+    ]}
+    for task_index, match in zip(rotate_indices, directives):
+        sign, magnitude_text, unit_text = match.groups()
+        task = repaired["tasks"][task_index]
+        magnitude = float(magnitude_text)
+        task["direction"] = "-R" if sign == "-" else "R"
+        try:
+            provider_magnitude = abs(float(task.get("angle")))
+        except (TypeError, ValueError):
+            provider_magnitude = None
+        if (
+            provider_magnitude is not None
+            and abs(provider_magnitude - magnitude) <= 1e-9
+        ):
+            task["angle"] = magnitude
+        if unit_text == "°":
+            task["unit"] = "degrees"
     return repaired
 
 
@@ -261,6 +305,7 @@ class GeminiCommandClient:
                     payload = raw
             payload = _repair_linear_motion(payload)
             payload = _repair_explicit_axis(payload, instruction)
+            payload = _repair_explicit_r_rotation(payload, instruction)
             return validate_command(payload)
         except CommandValidationError as exc:
             raise GeminiCommandError(str(exc)) from exc
