@@ -34,6 +34,12 @@ class FakeClient:
         target = DobotPosition(**values)
         return self.before, target
 
+    def rotation_preview(self, delta_degrees):
+        self.calls.append(("rotation_preview", delta_degrees))
+        values = self.before.as_dict()
+        values["r"] += delta_degrees
+        return self.before, DobotPosition(**values)
+
     def calibrate(self, axis, delta_mm, expected_before):
         self.calls.append(("calibrate", axis, delta_mm, expected_before))
         return {"verified": True}
@@ -106,6 +112,49 @@ def test_explicit_cartesian_move_uses_guarded_calibration(
     assert client.calls[1][0:3] == (
         "calibrate", expected_axis, expected_delta
     )
+
+
+@pytest.mark.parametrize(
+    ("direction", "expected_delta"),
+    [("R", 1.0), ("-R", -1.0)],
+)
+def test_real_r_rotation_requires_preview_confirmation_and_verification(
+    config, direction, expected_delta
+):
+    client = FakeClient()
+    prompts = []
+    adapter = DobotMagicianLiteAdapter(
+        build_dobot_robot(), client, config,
+        confirm=lambda action, detail: prompts.append((action, detail)) or True,
+    )
+    result = adapter.execute(command(
+        "ROTATE", direction=direction, angle=1, unit="degrees"
+    ))
+    assert "verified" in result[0]
+    assert client.calls[0] == ("rotation_preview", expected_delta)
+    assert client.calls[1][0:3] == ("calibrate", "r", expected_delta)
+    assert '"hard_max_step_degrees": 5.0' in prompts[0][1]
+    assert '"target"' in prompts[0][1]
+
+
+def test_real_r_rotation_above_five_degrees_is_rejected(config):
+    adapter = DobotMagicianLiteAdapter(
+        build_dobot_robot(), FakeClient(), config, confirm=lambda *_: True
+    )
+    assert adapter.validate(command(
+        "ROTATE", direction="R", angle=5.01, unit="degrees"
+    )) is False
+
+
+def test_real_r_rotation_cannot_be_combined_with_status(config):
+    adapter = DobotMagicianLiteAdapter(
+        build_dobot_robot(), FakeClient(), config, confirm=lambda *_: True
+    )
+    mixed = UniversalCommand.model_validate({"tasks": [
+        {"action": "ROTATE", "direction": "R", "angle": 1, "unit": "degrees"},
+        {"action": "GET_STATUS"},
+    ]})
+    assert adapter.validate(mixed) is False
 
 
 def test_cancelled_move_never_calibrates(config):
