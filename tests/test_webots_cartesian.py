@@ -63,6 +63,28 @@ def test_measured_negative_y_displacement_is_verified():
     assert report["verified"] is True
 
 
+def test_universal_positive_and_negative_z_are_preserved():
+    assert requested_axis_metres({
+        "direction": "Z", "distance": 5, "unit": "mm"
+    }) == ("z", pytest.approx(0.005))
+    assert requested_axis_metres({
+        "direction": "-Z", "distance": 5, "unit": "millimeters"
+    }) == ("z", pytest.approx(-0.005))
+
+
+def test_measured_positive_z_displacement_is_verified():
+    report = axis_displacement_report(
+        (0.200, 0.010, 0.300),
+        (0.200, 0.010, 0.305),
+        "z",
+        0.005,
+    )
+    assert report["axis"] == "z"
+    assert report["requested_z_mm"] == pytest.approx(5.0)
+    assert report["actual_z_mm"] == pytest.approx(5.0)
+    assert report["verified"] is True
+
+
 def test_damped_solver_returns_bounded_joint_correction():
     dq1, dq2 = damped_xz_step(
         ((0.25, 0.0), (0.0, 0.20)),
@@ -115,6 +137,7 @@ def test_webots_controller_is_valid_python():
     ast.parse(source)
     assert "requested_axis_metres(task)" in source
     assert "move_cartesian_y" in source
+    assert "move_cartesian_z" in source
     assert "displacement_report(" in source
     assert "show_motion_indicator(before, after, report)" in source
     assert "setSFVec3f(list(before))" in source
