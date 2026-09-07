@@ -70,6 +70,43 @@ def test_linear_units_repair_provider_rotate_misclassification():
     assert command.tasks[0].unit == "centimeter"
 
 
+def test_explicit_x_axis_is_restored_when_provider_omits_it():
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = SimpleNamespace(
+        parsed={
+            "version": "1.0",
+            "tasks": [{
+                "action": "MOVE",
+                "distance": 5.0,
+                "unit": "mm",
+                "parameters": {},
+            }],
+        },
+        text=None,
+    )
+    command = GeminiCommandClient(settings(), client=sdk_client).generate_command(
+        "MOVE +5 mm on X"
+    )
+    assert command.tasks[0].action.value == "MOVE"
+    assert command.tasks[0].direction == "X"
+    assert command.tasks[0].distance == 5.0
+
+
+def test_missing_axis_is_not_invented_for_ambiguous_move():
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = SimpleNamespace(
+        parsed={
+            "version": "1.0",
+            "tasks": [{"action": "MOVE", "distance": 5.0, "unit": "mm"}],
+        },
+        text=None,
+    )
+    with pytest.raises(GeminiCommandError, match="requires one of"):
+        GeminiCommandClient(settings(), client=sdk_client).generate_command(
+            "MOVE 5 mm"
+        )
+
+
 def test_invalid_mocked_response_fails_safely():
     sdk_client = Mock()
     sdk_client.models.generate_content.return_value = SimpleNamespace(
