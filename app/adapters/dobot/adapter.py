@@ -10,7 +10,11 @@ from app.adapters.base import RobotAdapter, RobotAdapterError
 from app.adapters.dobot.client import ConnectionState, DobotLinkClient
 from app.adapters.dobot.config import DobotConfig, DobotPosition, OperationMode
 from app.adapters.dobot.exceptions import DobotError
-from app.adapters.dobot.mapper import SUPPORTED_ACTIONS, map_task
+from app.adapters.dobot.mapper import (
+    REAL_LLM_MAX_STEP_MM,
+    SUPPORTED_ACTIONS,
+    map_task,
+)
 from app.commands.models import Action, UniversalCommand
 from app.robots.models import Robot
 
@@ -78,7 +82,10 @@ class DobotMagicianLiteAdapter(RobotAdapter):
                         **operation,
                         "before": before.as_dict(),
                         "target": target.as_dict(),
-                        "hard_max_step_mm": 1.0,
+                        "hard_max_step_mm": min(
+                            self.config.calibration_max_step_mm,
+                            REAL_LLM_MAX_STEP_MM,
+                        ),
                     }
                     self._confirmed(confirmation)
                     result = self.client.calibrate(
