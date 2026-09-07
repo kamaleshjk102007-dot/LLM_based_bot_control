@@ -10,12 +10,6 @@ _R_DIRECTIONS = {
     "r+": 1.0,
     "-r": -1.0,
     "r-": -1.0,
-    "counterclockwise": 1.0,
-    "counter-clockwise": 1.0,
-    "anticlockwise": 1.0,
-    "left": 1.0,
-    "clockwise": -1.0,
-    "right": -1.0,
 }
 
 
