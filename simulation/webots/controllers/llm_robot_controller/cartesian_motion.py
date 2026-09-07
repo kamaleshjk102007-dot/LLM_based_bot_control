@@ -3,27 +3,47 @@
 import math
 
 MM_UNITS = {"mm", "millimeter", "millimeters", "millimetre", "millimetres"}
-X_DIRECTIONS = {
-    "x": 1.0,
-    "+x": 1.0,
-    "x+": 1.0,
-    "-x": -1.0,
-    "x-": -1.0,
+AXIS_DIRECTIONS = {
+    "x": ("x", 1.0),
+    "+x": ("x", 1.0),
+    "x+": ("x", 1.0),
+    "-x": ("x", -1.0),
+    "x-": ("x", -1.0),
+    "y": ("y", 1.0),
+    "+y": ("y", 1.0),
+    "y+": ("y", 1.0),
+    "-y": ("y", -1.0),
+    "y-": ("y", -1.0),
 }
+X_DIRECTIONS = {
+    direction: sign
+    for direction, (axis, sign) in AXIS_DIRECTIONS.items()
+    if axis == "x"
+}
+
+
+def requested_axis_metres(task):
+    """Return (axis, signed displacement) for supported Cartesian millimeter moves."""
+    direction = str(task.get("direction", "")).strip().lower()
+    axis_and_sign = AXIS_DIRECTIONS.get(direction)
+    if axis_and_sign is None:
+        return None
+    unit = str(task.get("unit", "")).strip().lower()
+    if unit not in MM_UNITS:
+        raise ValueError("Cartesian movement currently requires millimeters.")
+    distance = float(task.get("distance", 0.0))
+    if not math.isfinite(distance) or distance <= 0:
+        raise ValueError("Cartesian movement requires a positive finite distance.")
+    axis, sign = axis_and_sign
+    return axis, sign * distance / 1000.0
 
 
 def requested_x_metres(task):
     """Return a signed X displacement in metres, or None for legacy directions."""
-    direction = str(task.get("direction", "")).strip().lower()
-    if direction not in X_DIRECTIONS:
+    requested = requested_axis_metres(task)
+    if requested is None or requested[0] != "x":
         return None
-    unit = str(task.get("unit", "")).strip().lower()
-    if unit not in MM_UNITS:
-        raise ValueError("Cartesian X movement currently requires millimeters.")
-    distance = float(task.get("distance", 0.0))
-    if not math.isfinite(distance) or distance <= 0:
-        raise ValueError("Cartesian X movement requires a positive finite distance.")
-    return X_DIRECTIONS[direction] * distance / 1000.0
+    return requested[1]
 
 
 def damped_xz_step(columns, error_xz, damping=1e-5, max_step=0.04):
@@ -48,16 +68,42 @@ def damped_xz_step(columns, error_xz, damping=1e-5, max_step=0.04):
     return dq1, dq2
 
 
-def displacement_report(before_m, after_m, requested_x_m, tolerance_m=0.00075):
-    """Measure X displacement and fail if it does not match the request."""
-    actual_x_m = float(after_m[0]) - float(before_m[0])
-    error_m = actual_x_m - requested_x_m
+def damped_scalar_step(jacobian, error, damping=1e-5, max_step=0.04):
+    """Return a bounded damped least-squares step for one Cartesian component."""
+    denominator = jacobian * jacobian + damping
+    if denominator <= damping:
+        raise ValueError("Cartesian Jacobian is singular at the current pose.")
+    step = jacobian * error / denominator
+    return max(-max_step, min(max_step, step))
+
+
+def axis_displacement_report(
+    before_m, after_m, axis, requested_m, tolerance_m=0.00075
+):
+    """Measure displacement on one Cartesian axis."""
+    indices = {"x": 0, "y": 1, "z": 2}
+    normalized_axis = str(axis).lower()
+    if normalized_axis not in indices:
+        raise ValueError("Unsupported Cartesian reporting axis.")
+    index = indices[normalized_axis]
+    actual_m = float(after_m[index]) - float(before_m[index])
+    error_m = actual_m - requested_m
     return {
-        "requested_x_mm": requested_x_m * 1000.0,
-        "actual_x_mm": actual_x_m * 1000.0,
+        "axis": normalized_axis,
+        "requested_mm": requested_m * 1000.0,
+        "actual_mm": actual_m * 1000.0,
+        f"requested_{normalized_axis}_mm": requested_m * 1000.0,
+        f"actual_{normalized_axis}_mm": actual_m * 1000.0,
         "error_mm": error_m * 1000.0,
         "tolerance_mm": tolerance_m * 1000.0,
         "verified": abs(error_m) <= tolerance_m,
         "before_mm": [float(value) * 1000.0 for value in before_m],
         "after_mm": [float(value) * 1000.0 for value in after_m],
     }
+
+
+def displacement_report(before_m, after_m, requested_x_m, tolerance_m=0.00075):
+    """Backward-compatible X displacement report."""
+    return axis_displacement_report(
+        before_m, after_m, "x", requested_x_m, tolerance_m
+    )
