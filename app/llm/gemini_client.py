@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from google import genai
@@ -80,6 +81,38 @@ _LINEAR_UNITS = {
     "m", "meter", "meters", "metre", "metres",
     "in", "inch", "inches",
 }
+
+
+_EXPLICIT_AXIS = re.compile(
+    r"\\b(?:on|along)\\s*([+-]?\\s*[xyz])\\b",
+    re.IGNORECASE,
+)
+
+
+def _repair_explicit_axis(payload: Any, instruction: str) -> Any:
+    """Restore an explicitly written Cartesian axis without guessing."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("tasks"), list):
+        return payload
+    match = _EXPLICIT_AXIS.search(instruction)
+    if match is None:
+        return payload
+    axis = match.group(1).replace(" ", "").upper()
+    if axis.startswith("+"):
+        axis = axis[1:]
+
+    repaired = {**payload, "tasks": []}
+    for item in payload["tasks"]:
+        task = dict(item) if isinstance(item, dict) else item
+        if (
+            isinstance(task, dict)
+            and task.get("action") == "MOVE"
+            and not task.get("direction")
+            and not task.get("position")
+            and not task.get("target")
+        ):
+            task["direction"] = axis
+        repaired["tasks"].append(task)
+    return repaired
 
 
 def _repair_linear_motion(payload: Any) -> Any:
@@ -171,6 +204,8 @@ class GeminiCommandClient:
         try:
             # Always perform a second application-side validation, even when the SDK parsed it.
             payload = _repair_linear_motion(parsed) if parsed is not None else raw
+            if parsed is not None:
+                payload = _repair_explicit_axis(payload, instruction)
             return validate_command(payload)
         except CommandValidationError as exc:
             raise GeminiCommandError(str(exc)) from exc
