@@ -1,0 +1,23 @@
+{
+  "robots": [
+    {
+      "robot_id": "dobot_001",
+      "robot_type": "DOBOT_MAGician_Lite",
+      "name": "DOBOT Magician Lite",
+      "manufacturer": "DOBOT",
+      "model": "Magician Lite",
+      "adapter_type": "dobot_magician_lite",
+      "capabilities": [
+        "MOVE",
+        "ROTATE",
+        "GRIP",
+        "RELEASE",
+        "HOME",
+        "STOP",
+        "GET_STATUS"
+      ],
+      "status": "UNKNOWN",
+      "priority": 10
+    }
+  ]
+}
