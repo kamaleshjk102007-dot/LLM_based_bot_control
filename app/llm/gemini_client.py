@@ -85,7 +85,7 @@ _LINEAR_UNITS = {
 
 
 _EXPLICIT_AXIS = re.compile(
-    r"\\b(?:on|along)\\s*([+-]?\\s*[xyz])\\b",
+    r"\b(?:on|along)\s*([+-]?\s*[xyz])\b",
     re.IGNORECASE,
 )
 
