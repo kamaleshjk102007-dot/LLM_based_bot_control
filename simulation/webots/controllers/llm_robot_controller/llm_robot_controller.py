@@ -42,6 +42,22 @@ class Simulator:
             raise RuntimeError(
                 "Webots world is missing Cartesian nodes: " + ", ".join(missing)
             )
+        self.visual_nodes = {
+            name: self.robot.getFromDef(name)
+            for name in (
+                "MOVE_START_MARKER",
+                "MOVE_END_MARKER",
+                "MOVE_TRAJECTORY_COORD",
+            )
+        }
+        missing_visuals = [
+            name for name, node in self.visual_nodes.items() if node is None
+        ]
+        if missing_visuals:
+            raise RuntimeError(
+                "Webots world is missing movement indicators: "
+                + ", ".join(missing_visuals)
+            )
         self.targets = dict(HOME)
         self.stopped = False
         for name, motor in self.motors.items():
@@ -85,6 +101,39 @@ class Simulator:
             column(self.nodes["ELBOW_LINK"].getPosition()),
         )
 
+    def show_motion_indicator(self, before, after, report):
+        # Lift both markers equally so they remain visible above the tool.
+        # Their relative displacement and trajectory length stay exact.
+        visual_offset = (0.0, 0.0, 0.04)
+        start = [value + offset for value, offset in zip(before, visual_offset)]
+        end = [value + offset for value, offset in zip(after, visual_offset)]
+        self.visual_nodes["MOVE_START_MARKER"].getField(
+            "translation"
+        ).setSFVec3f(start)
+        self.visual_nodes["MOVE_END_MARKER"].getField(
+            "translation"
+        ).setSFVec3f(end)
+        points = self.visual_nodes["MOVE_TRAJECTORY_COORD"].getField("point")
+        points.setMFVec3f(0, start)
+        points.setMFVec3f(1, end)
+        self.robot.setLabel(
+            0,
+            "Cartesian X movement\\n"
+            f"GREEN start: {report['before_mm'][0]:.3f} mm\\n"
+            f"RED final: {report['after_mm'][0]:.3f} mm\\n"
+            f"Requested: {report['requested_x_mm']:+.3f} mm\\n"
+            f"Measured: {report['actual_x_mm']:+.3f} mm\\n"
+            f"Error: {report['error_mm']:+.3f} mm  "
+            f"Verified: {report['verified']}\\n"
+            "Yellow line = measured trajectory; markers lifted 40 mm",
+            0.01,
+            0.05,
+            0.055,
+            0xFFFFFF,
+            0.0,
+            "Arial",
+        )
+
     def move_cartesian_x(self, requested_x_m):
         if abs(requested_x_m) > 0.020:
             raise ValueError("Webots Cartesian X MOVE is limited to 20 mm.")
@@ -116,6 +165,7 @@ class Simulator:
             and abs(report["y_drift_mm"]) <= report["tolerance_mm"]
             and abs(report["z_drift_mm"]) <= report["tolerance_mm"]
         )
+        self.show_motion_indicator(before, after, report)
         if not report["verified"]:
             self.targets = original_targets
             self.set_targets()
