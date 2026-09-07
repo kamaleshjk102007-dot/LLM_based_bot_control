@@ -175,6 +175,37 @@ def test_guarded_calibration_rejects_more_than_five_mm():
         client.calibration_preview("x", 5.01)
 
 
+def test_guarded_r_rotation_is_degree_based_and_verified():
+    limits = __import__(
+        "app.adapters.dobot.config", fromlist=["SafetyLimits"]
+    ).SafetyLimits(50, 150, -50, 50, 20, 100, -10, 10)
+    config = DobotConfig(
+        mode=OperationMode.REAL,
+        max_retries=0,
+        verification_start_delay_seconds=0,
+        safety_limits=limits,
+    )
+    client, _ = make_client(FakeLite(), config, FakeClock())
+    client.connect()
+    before, target = client.rotation_preview(5)
+    assert target.r == before.r + 5
+    assert target.x == before.x
+    assert target.y == before.y
+    assert target.z == before.z
+    result = client.calibrate("r", 5, before)
+    assert result["verified"] is True
+    assert result["calibration_axis"] == "r"
+    assert result["requested_delta_degrees"] == 5
+    assert "requested_delta_mm" not in result
+
+
+def test_guarded_r_rotation_rejects_more_than_five_degrees():
+    client, _ = make_client()
+    client.connect()
+    with pytest.raises(DobotSafetyError, match="no more than 5 degrees"):
+        client.rotation_preview(5.01)
+
+
 def test_move_timeout_attempts_stop_and_clear_and_enters_error():
     class TimeoutLite(FakeLite):
         def __getattr__(self, name):
