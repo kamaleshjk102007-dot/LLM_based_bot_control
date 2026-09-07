@@ -22,22 +22,44 @@ class WebotsClient:
         self.port = port
         self.timeout = timeout
 
-    def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def request(
+        self,
+        payload: dict[str, Any],
+        response_timeout: float | None = None,
+    ) -> dict[str, Any]:
         encoded = (json.dumps(payload) + "\n").encode("utf-8")
         try:
-            with socket.create_connection((self.host, self.port), self.timeout) as connection:
-                connection.settimeout(self.timeout)
+            connection = socket.create_connection(
+                (self.host, self.port), self.timeout
+            )
+        except (OSError, TimeoutError) as exc:
+            raise RobotAdapterError(
+                f"Could not connect to Webots at {self.host}:{self.port}. "
+                "Open simulation/webots/worlds/magician_lite.wbt and press Play."
+            ) from exc
+
+        wait_seconds = response_timeout or self.timeout
+        try:
+            with connection:
+                connection.settimeout(wait_seconds)
                 connection.sendall(encoded)
                 chunks = bytearray()
                 while b"\n" not in chunks:
                     part = connection.recv(65536)
                     if not part:
-                        raise RobotAdapterError("Webots closed the connection without a response.")
+                        raise RobotAdapterError(
+                            "Webots closed the connection without a response."
+                        )
                     chunks.extend(part)
-        except (OSError, TimeoutError) as exc:
+        except socket.timeout as exc:
             raise RobotAdapterError(
-                f"Could not connect to Webots at {self.host}:{self.port}. "
-                "Open simulation/webots/worlds/magician_lite.wbt and press Play."
+                f"Webots execution timed out after {wait_seconds:g} seconds. "
+                "The simulator may still be completing the command; do not "
+                "repeat it until Webots is restarted or its status is checked."
+            ) from exc
+        except OSError as exc:
+            raise RobotAdapterError(
+                "Communication with Webots failed after connecting."
             ) from exc
 
         try:
@@ -74,7 +96,14 @@ class WebotsRobotAdapter(RobotAdapter):
         ]
 
     def execute(self, command: UniversalCommand) -> list[str]:
-        response = self.client.request({"type": "execute", "tasks": self.prepare(command)})
+        tasks = self.prepare(command)
+        # Cartesian verification advances the simulation repeatedly. Allow each
+        # task its own bounded response window while retaining a short connect timeout.
+        response_timeout = max(self.client.timeout, 10.0 * len(tasks))
+        response = self.client.request(
+            {"type": "execute", "tasks": tasks},
+            response_timeout=response_timeout,
+        )
         results = response.get("results")
         if not isinstance(results, list) or not all(isinstance(item, str) for item in results):
             raise RobotAdapterError("Webots response did not contain text results.")
