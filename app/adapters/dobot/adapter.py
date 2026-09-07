@@ -11,6 +11,7 @@ from app.adapters.dobot.client import ConnectionState, DobotLinkClient
 from app.adapters.dobot.config import DobotConfig, DobotPosition, OperationMode
 from app.adapters.dobot.exceptions import DobotError
 from app.adapters.dobot.mapper import (
+    REAL_LLM_MAX_ROTATION_DEGREES,
     REAL_LLM_MAX_STEP_MM,
     SUPPORTED_ACTIONS,
     map_task,
@@ -45,7 +46,10 @@ class DobotMagicianLiteAdapter(RobotAdapter):
             return False
         # A physical LLM MOVE must be isolated so no later task can obscure
         # confirmation, execution, or final-pose verification.
-        if any(task.action is Action.MOVE for task in command.tasks) and len(command.tasks) != 1:
+        if any(
+            task.action in {Action.MOVE, Action.ROTATE}
+            for task in command.tasks
+        ) and len(command.tasks) != 1:
             return False
         try:
             # Map every task before executing any task: multi-step commands fail closed.
@@ -90,6 +94,23 @@ class DobotMagicianLiteAdapter(RobotAdapter):
                     self._confirmed(confirmation)
                     result = self.client.calibrate(
                         operation["axis"], operation["delta_mm"], before
+                    )
+                elif action is Action.ROTATE:
+                    before, target = self.client.rotation_preview(
+                        operation["delta_degrees"]
+                    )
+                    confirmation = {
+                        **operation,
+                        "before": before.as_dict(),
+                        "target": target.as_dict(),
+                        "hard_max_step_degrees": min(
+                            self.config.rotation_max_step_degrees,
+                            REAL_LLM_MAX_ROTATION_DEGREES,
+                        ),
+                    }
+                    self._confirmed(confirmation)
+                    result = self.client.calibrate(
+                        "r", operation["delta_degrees"], before
                     )
                 else:
                     self._confirmed(operation)
