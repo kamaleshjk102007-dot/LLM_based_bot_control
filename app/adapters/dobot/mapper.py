@@ -14,7 +14,7 @@ SUPPORTED_ACTIONS = frozenset({
 })
 
 # This hard limit cannot be increased through an environment variable.
-REAL_LLM_MAX_STEP_MM = 1.0
+REAL_LLM_MAX_STEP_MM = 5.0
 _VERTICAL_DIRECTIONS = {
     "up": 1.0,
     "upward": 1.0,
