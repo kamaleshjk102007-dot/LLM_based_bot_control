@@ -4,8 +4,11 @@ from pathlib import Path
 import pytest
 
 from simulation.webots.controllers.llm_robot_controller.cartesian_motion import (
+    axis_displacement_report,
+    damped_scalar_step,
     damped_xz_step,
     displacement_report,
+    requested_axis_metres,
     requested_x_metres,
 )
 
@@ -31,6 +34,33 @@ def test_x_sign_aliases_and_unit_guard():
         requested_x_metres({
             "direction": "X", "distance": 5, "unit": "centimeters"
         })
+
+
+def test_universal_positive_and_negative_y_are_preserved():
+    assert requested_axis_metres({
+        "direction": "Y", "distance": 5, "unit": "mm"
+    }) == ("y", pytest.approx(0.005))
+    assert requested_axis_metres({
+        "direction": "-Y", "distance": 5, "unit": "millimeters"
+    }) == ("y", pytest.approx(-0.005))
+
+
+def test_damped_scalar_solver_is_bounded():
+    assert 0 < damped_scalar_step(0.20, 0.005) <= 0.04
+    assert -0.04 <= damped_scalar_step(0.20, -0.005) < 0
+
+
+def test_measured_negative_y_displacement_is_verified():
+    report = axis_displacement_report(
+        (0.200, 0.010, 0.300),
+        (0.200, 0.005, 0.300),
+        "y",
+        -0.005,
+    )
+    assert report["axis"] == "y"
+    assert report["requested_y_mm"] == pytest.approx(-5.0)
+    assert report["actual_y_mm"] == pytest.approx(-5.0)
+    assert report["verified"] is True
 
 
 def test_damped_solver_returns_bounded_joint_correction():
@@ -83,9 +113,10 @@ def test_webots_controller_is_valid_python():
         "llm_robot_controller.py"
     ).read_text(encoding="utf-8")
     ast.parse(source)
-    assert "requested_x_metres(task)" in source
+    assert "requested_axis_metres(task)" in source
+    assert "move_cartesian_y" in source
     assert "displacement_report(" in source
     assert "show_motion_indicator(before, after, report)" in source
-    assert "setSFVec3f(start)" in source
-    assert "setSFVec3f(end)" in source
+    assert "setSFVec3f(list(before))" in source
+    assert "setSFVec3f(list(after))" in source
     assert "self.robot.setLabel(" in source
