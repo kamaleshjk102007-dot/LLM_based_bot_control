@@ -49,7 +49,7 @@ class FakeClient:
 def config():
     return DobotConfig(
         mode=OperationMode.REAL,
-        calibration_max_step_mm=1,
+        calibration_max_step_mm=5,
         safety_limits=SafetyLimits(50, 150, -50, 50, 20, 100, -90, 90),
     )
 
@@ -61,7 +61,7 @@ def command(action, **fields):
     })
 
 
-def test_one_mm_upward_move_requires_detailed_confirmation(config):
+def test_five_mm_upward_move_requires_detailed_confirmation(config):
     client = FakeClient()
     prompts = []
     adapter = DobotMagicianLiteAdapter(
@@ -69,12 +69,12 @@ def test_one_mm_upward_move_requires_detailed_confirmation(config):
         confirm=lambda action, detail: prompts.append((action, detail)) or True,
     )
     result = adapter.execute(command(
-        "MOVE", direction="upward", distance=1, unit="mm"
+        "MOVE", direction="upward", distance=5, unit="mm"
     ))
     assert "verified" in result[0]
-    assert client.calls[0] == ("preview", "z", 1.0)
-    assert client.calls[1][0:3] == ("calibrate", "z", 1.0)
-    assert '"hard_max_step_mm": 1.0' in prompts[0][1]
+    assert client.calls[0] == ("preview", "z", 5.0)
+    assert client.calls[1][0:3] == ("calibrate", "z", 5.0)
+    assert '"hard_max_step_mm": 5.0' in prompts[0][1]
     assert '"target"' in prompts[0][1]
 
 
@@ -91,7 +91,7 @@ def test_cancelled_move_never_calibrates(config):
 
 
 @pytest.mark.parametrize("fields", [
-    {"direction": "upward", "distance": 1.01, "unit": "mm"},
+    {"direction": "upward", "distance": 5.01, "unit": "mm"},
     {"direction": "left", "distance": 1, "unit": "mm"},
     {"direction": "upward", "distance": 1, "unit": "centimeters"},
 ])
