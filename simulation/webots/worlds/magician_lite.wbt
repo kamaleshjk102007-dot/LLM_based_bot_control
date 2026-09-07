@@ -20,34 +20,70 @@ RectangleArena {
 DEF MOVE_START_MARKER Transform {
   translation 0 0 -10
   children [
-    Shape {
-      appearance PBRAppearance {
-        baseColor 0.1 1 0.1
-        emissiveColor 0.05 0.5 0.05
-        roughness 0.3
-      }
-      geometry Sphere { radius 0.002 }
+    Transform {
+      translation 0 0 0.02
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.05 1 0.05
+            emissiveColor 0.05 0.7 0.05
+            roughness 0.25
+          }
+          geometry Cylinder { height 0.04 radius 0.0015 }
+        }
+      ]
+    }
+    Transform {
+      translation 0 0 0.04
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.05 1 0.05
+            emissiveColor 0.05 0.7 0.05
+            roughness 0.25
+          }
+          geometry Sphere { radius 0.003 }
+        }
+      ]
     }
   ]
 }
 DEF MOVE_END_MARKER Transform {
   translation 0 0 -10
   children [
-    Shape {
-      appearance PBRAppearance {
-        baseColor 1 0.1 0.1
-        emissiveColor 0.5 0.05 0.05
-        roughness 0.3
-      }
-      geometry Sphere { radius 0.002 }
+    Transform {
+      translation 0 0 0.02
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 1 0.05 0.05
+            emissiveColor 0.7 0.05 0.05
+            roughness 0.25
+          }
+          geometry Cylinder { height 0.04 radius 0.0015 }
+        }
+      ]
+    }
+    Transform {
+      translation 0 0 0.04
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 1 0.05 0.05
+            emissiveColor 0.7 0.05 0.05
+            roughness 0.25
+          }
+          geometry Sphere { radius 0.003 }
+        }
+      ]
     }
   ]
 }
 DEF MOVE_TRAJECTORY Shape {
   appearance PBRAppearance {
     baseColor 1 0.8 0
-    emissiveColor 0.5 0.35 0
-    roughness 0.3
+    emissiveColor 0.8 0.55 0
+    roughness 0.2
   }
   geometry IndexedLineSet {
     coord DEF MOVE_TRAJECTORY_COORD Coordinate {
