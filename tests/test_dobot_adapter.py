@@ -29,7 +29,9 @@ class FakeClient:
 
     def calibration_preview(self, axis, delta_mm):
         self.calls.append(("preview", axis, delta_mm))
-        target = DobotPosition(100, 0, self.before.z + delta_mm, 0)
+        values = self.before.as_dict()
+        values[axis] += delta_mm
+        target = DobotPosition(**values)
         return self.before, target
 
     def calibrate(self, axis, delta_mm, expected_before):
@@ -76,6 +78,34 @@ def test_five_mm_upward_move_requires_detailed_confirmation(config):
     assert client.calls[1][0:3] == ("calibrate", "z", 5.0)
     assert '"hard_max_step_mm": 5.0' in prompts[0][1]
     assert '"target"' in prompts[0][1]
+
+
+@pytest.mark.parametrize(
+    ("direction", "expected_axis", "expected_delta"),
+    [
+        ("X", "x", 1.0),
+        ("-X", "x", -1.0),
+        ("Y", "y", 1.0),
+        ("-Y", "y", -1.0),
+        ("Z", "z", 1.0),
+        ("-Z", "z", -1.0),
+    ],
+)
+def test_explicit_cartesian_move_uses_guarded_calibration(
+    config, direction, expected_axis, expected_delta
+):
+    client = FakeClient()
+    adapter = DobotMagicianLiteAdapter(
+        build_dobot_robot(), client, config, confirm=lambda *_: True
+    )
+    result = adapter.execute(command(
+        "MOVE", direction=direction, distance=1, unit="mm"
+    ))
+    assert "verified" in result[0]
+    assert client.calls[0] == ("preview", expected_axis, expected_delta)
+    assert client.calls[1][0:3] == (
+        "calibrate", expected_axis, expected_delta
+    )
 
 
 def test_cancelled_move_never_calibrates(config):
