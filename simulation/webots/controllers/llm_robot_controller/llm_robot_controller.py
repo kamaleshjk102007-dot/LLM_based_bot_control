@@ -408,4 +408,9 @@ while sim.robot.step(TIME_STEP) != -1:
                 raise ValueError("Unknown request type.")
         except Exception as exc:
             response = {"ok": False, "error": str(exc)}
-        client.sendall((json.dumps(response) + "\n").encode("utf-8"))
+        try:
+            client.sendall((json.dumps(response) + "\n").encode("utf-8"))
+        except OSError as exc:
+            # The caller may have reached an older/shorter timeout while this
+            # measured move was completing. Keep the simulator controller alive.
+            print(f"Webots response client disconnected: {type(exc).__name__}")
