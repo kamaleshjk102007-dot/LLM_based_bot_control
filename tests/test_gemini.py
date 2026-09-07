@@ -178,6 +178,37 @@ def test_multi_step_negative_axes_keep_positive_distances():
     assert [task.distance for task in command.tasks] == [5.0, 5.0, 5.0]
 
 
+@pytest.mark.parametrize(
+    ("instruction", "provider_angle", "direction"),
+    [
+        ("ROTATE +5 degrees on R", 5, "R"),
+        ("ROTATE -5 degrees on R", -5, "-R"),
+    ],
+)
+def test_signed_r_rotation_keeps_angle_positive(
+    instruction, provider_angle, direction
+):
+    sdk_client = Mock()
+    sdk_client.models.generate_content.return_value = SimpleNamespace(
+        parsed={
+            "version": "1.0",
+            "tasks": [{
+                "action": "ROTATE",
+                "direction": "R",
+                "angle": provider_angle,
+                "unit": "degrees",
+            }],
+        },
+        text=None,
+    )
+    command = GeminiCommandClient(settings(), client=sdk_client).generate_command(
+        instruction
+    )
+    assert command.tasks[0].direction == direction
+    assert command.tasks[0].angle == 5.0
+    assert command.tasks[0].unit == "degrees"
+
+
 def test_missing_axis_is_not_invented_for_ambiguous_move():
     sdk_client = Mock()
     sdk_client.models.generate_content.return_value = SimpleNamespace(
