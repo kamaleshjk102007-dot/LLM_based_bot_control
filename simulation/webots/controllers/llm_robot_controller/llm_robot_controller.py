@@ -7,7 +7,9 @@ import json
 import math
 import socket
 
-from controller import Robot
+from controller import Supervisor
+
+from cartesian_motion import damped_xz_step, displacement_report, requested_x_metres
 
 
 TIME_STEP = 32
@@ -29,8 +31,17 @@ HOME = {
 
 class Simulator:
     def __init__(self):
-        self.robot = Robot()
+        self.robot = Supervisor()
         self.motors = {name: self.robot.getDevice(name) for name in LIMITS}
+        self.nodes = {
+            name: self.robot.getFromDef(name)
+            for name in ("ARM_BASE", "SHOULDER_LINK", "ELBOW_LINK", "END_EFFECTOR")
+        }
+        missing = [name for name, node in self.nodes.items() if node is None]
+        if missing:
+            raise RuntimeError(
+                "Webots world is missing Cartesian nodes: " + ", ".join(missing)
+            )
         self.targets = dict(HOME)
         self.stopped = False
         for name, motor in self.motors.items():
@@ -48,7 +59,78 @@ class Simulator:
             self.motors[name].setVelocity(0.7)
             self.motors[name].setPosition(self.targets[name])
 
+    def advance(self, steps):
+        for _ in range(steps):
+            if self.robot.step(TIME_STEP) == -1:
+                raise RuntimeError("Webots stopped during Cartesian movement.")
+
+    def end_effector_position(self):
+        return tuple(self.nodes["END_EFFECTOR"].getPosition())
+
+    def xz_columns(self, end_position):
+        orientation = self.nodes["ARM_BASE"].getOrientation()
+        axis = (orientation[1], orientation[4], orientation[7])
+
+        def column(pivot):
+            radius = tuple(a - b for a, b in zip(end_position, pivot))
+            cross = (
+                axis[1] * radius[2] - axis[2] * radius[1],
+                axis[2] * radius[0] - axis[0] * radius[2],
+                axis[0] * radius[1] - axis[1] * radius[0],
+            )
+            return cross[0], cross[2]
+
+        return (
+            column(self.nodes["SHOULDER_LINK"].getPosition()),
+            column(self.nodes["ELBOW_LINK"].getPosition()),
+        )
+
+    def move_cartesian_x(self, requested_x_m):
+        if abs(requested_x_m) > 0.020:
+            raise ValueError("Webots Cartesian X MOVE is limited to 20 mm.")
+        self.advance(20)
+        before = self.end_effector_position()
+        desired = (before[0] + requested_x_m, before[2])
+        original_targets = dict(self.targets)
+
+        for _ in range(80):
+            current = self.end_effector_position()
+            error = (desired[0] - current[0], desired[1] - current[2])
+            if math.hypot(*error) <= 0.00075:
+                break
+            shoulder_step, elbow_step = damped_xz_step(
+                self.xz_columns(current), error
+            )
+            self.targets["shoulder_motor"] += shoulder_step
+            self.targets["elbow_motor"] += elbow_step
+            self.set_targets()
+            self.advance(8)
+
+        self.advance(20)
+        after = self.end_effector_position()
+        report = displacement_report(before, after, requested_x_m)
+        report["y_drift_mm"] = (after[1] - before[1]) * 1000.0
+        report["z_drift_mm"] = (after[2] - before[2]) * 1000.0
+        report["verified"] = bool(
+            report["verified"]
+            and abs(report["y_drift_mm"]) <= report["tolerance_mm"]
+            and abs(report["z_drift_mm"]) <= report["tolerance_mm"]
+        )
+        if not report["verified"]:
+            self.targets = original_targets
+            self.set_targets()
+            self.advance(40)
+            raise ValueError(
+                "Cartesian MOVE verification failed: "
+                + json.dumps(report, sort_keys=True)
+            )
+        self.stopped = False
+        return report
+
     def move(self, task):
+        requested_x_m = requested_x_metres(task)
+        if requested_x_m is not None:
+            return self.move_cartesian_x(requested_x_m)
         direction = str(task.get("direction", "")).lower()
         distance = float(task.get("distance", 10.0))
         unit = str(task.get("unit", "centimeters")).lower()
@@ -79,7 +161,11 @@ class Simulator:
     def execute_task(self, task):
         action = task.get("action")
         if action == "MOVE":
-            self.move(task)
+            report = self.move(task)
+            if report is not None:
+                return "[WEBOTS] MOVE X verified " + json.dumps(
+                    report, sort_keys=True
+                )
         elif action == "ROTATE":
             angle = math.radians(float(task.get("angle", 0.0)))
             direction = str(task.get("direction", "left")).lower()
@@ -101,9 +187,14 @@ class Simulator:
         return f"[WEBOTS] {action} accepted"
 
     def status(self):
+        position = self.end_effector_position()
         return {
             "ok": True,
             "state": "STOPPED" if self.stopped else "READY",
+            "end_effector_position_mm": {
+                axis: round(position[index] * 1000.0, 4)
+                for index, axis in enumerate(("x", "y", "z"))
+            },
             "joint_targets_degrees": {
                 name: round(math.degrees(value), 2)
                 for name, value in self.targets.items()
@@ -141,7 +232,12 @@ while sim.robot.step(TIME_STEP) != -1:
                 if not isinstance(tasks, list) or not tasks:
                     raise ValueError("At least one task is required.")
                 results = [sim.execute_task(task) for task in tasks]
-                response = {"ok": True, "state": sim.status()["state"], "results": results}
+                response = {
+                    "ok": True,
+                    "state": sim.status()["state"],
+                    "results": results,
+                    "status": sim.status(),
+                }
             else:
                 raise ValueError("Unknown request type.")
         except Exception as exc:
