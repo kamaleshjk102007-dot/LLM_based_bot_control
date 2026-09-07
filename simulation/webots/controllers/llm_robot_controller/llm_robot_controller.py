@@ -9,7 +9,13 @@ import socket
 
 from controller import Supervisor
 
-from cartesian_motion import damped_xz_step, displacement_report, requested_x_metres
+from cartesian_motion import (
+    axis_displacement_report,
+    damped_scalar_step,
+    damped_xz_step,
+    displacement_report,
+    requested_axis_metres,
+)
 
 
 TIME_STEP = 32
@@ -101,6 +107,19 @@ class Simulator:
             column(self.nodes["ELBOW_LINK"].getPosition()),
         )
 
+    def base_y_jacobian(self, end_position):
+        """Return d(end-effector Y)/d(base angle) in world coordinates."""
+        orientation = self.nodes["ARM_BASE"].getOrientation()
+        axis = (orientation[2], orientation[5], orientation[8])
+        pivot = self.nodes["ARM_BASE"].getPosition()
+        radius = tuple(a - b for a, b in zip(end_position, pivot))
+        cross = (
+            axis[1] * radius[2] - axis[2] * radius[1],
+            axis[2] * radius[0] - axis[0] * radius[2],
+            axis[0] * radius[1] - axis[1] * radius[0],
+        )
+        return cross[1]
+
     def show_motion_indicator(self, before, after, report):
         # Pins are anchored at the exact measured positions. Their tops and the
         # trajectory are lifted equally for visibility, preserving 5 mm spacing.
@@ -116,15 +135,19 @@ class Simulator:
         points = self.visual_nodes["MOVE_TRAJECTORY_COORD"].getField("point")
         points.setMFVec3f(0, start_top)
         points.setMFVec3f(1, end_top)
+        axis = report.get("axis", "x").lower()
+        axis_index = {"x": 0, "y": 1, "z": 2}[axis]
         self.robot.setLabel(
             0,
-            "CARTESIAN X: "
+            f"CARTESIAN {axis.upper()}: "
             + ("PASS" if report["verified"] else "FAIL")
             + "\n"
-            f"GREEN start X: {report['before_mm'][0]:.3f} mm\n"
-            f"RED final X: {report['after_mm'][0]:.3f} mm\n"
-            f"Requested: {report['requested_x_mm']:+.3f} mm\n"
-            f"Measured: {report['actual_x_mm']:+.3f} mm\n"
+            f"GREEN start {axis.upper()}: "
+            f"{report['before_mm'][axis_index]:.3f} mm\n"
+            f"RED final {axis.upper()}: "
+            f"{report['after_mm'][axis_index]:.3f} mm\n"
+            f"Requested: {report['requested_mm']:+.3f} mm\n"
+            f"Measured: {report['actual_mm']:+.3f} mm\n"
             f"Error: {report['error_mm']:+.3f} mm\n"
             "Yellow line: exact measured trajectory",
             0.015,
@@ -178,10 +201,56 @@ class Simulator:
         self.stopped = False
         return report
 
+    def move_cartesian_y(self, requested_y_m):
+        if abs(requested_y_m) > 0.020:
+            raise ValueError("Webots Cartesian Y MOVE is limited to 20 mm.")
+        self.advance(20)
+        before = self.end_effector_position()
+        desired_y = before[1] + requested_y_m
+        original_targets = dict(self.targets)
+
+        for _ in range(80):
+            current = self.end_effector_position()
+            error_y = desired_y - current[1]
+            if abs(error_y) <= 0.00075:
+                break
+            base_step = damped_scalar_step(
+                self.base_y_jacobian(current), error_y
+            )
+            self.targets["base_motor"] += base_step
+            self.set_targets()
+            self.advance(8)
+
+        self.advance(20)
+        after = self.end_effector_position()
+        report = axis_displacement_report(before, after, "y", requested_y_m)
+        report["x_drift_mm"] = (after[0] - before[0]) * 1000.0
+        report["z_drift_mm"] = (after[2] - before[2]) * 1000.0
+        report["verified"] = bool(
+            report["verified"]
+            and abs(report["x_drift_mm"]) <= report["tolerance_mm"]
+            and abs(report["z_drift_mm"]) <= report["tolerance_mm"]
+        )
+        self.show_motion_indicator(before, after, report)
+        if not report["verified"]:
+            self.targets = original_targets
+            self.set_targets()
+            self.advance(40)
+            raise ValueError(
+                "Cartesian MOVE verification failed: "
+                + json.dumps(report, sort_keys=True)
+            )
+        self.stopped = False
+        return report
+
     def move(self, task):
-        requested_x_m = requested_x_metres(task)
-        if requested_x_m is not None:
-            return self.move_cartesian_x(requested_x_m)
+        requested_axis = requested_axis_metres(task)
+        if requested_axis is not None:
+            axis, requested_m = requested_axis
+            if axis == "x":
+                return self.move_cartesian_x(requested_m)
+            if axis == "y":
+                return self.move_cartesian_y(requested_m)
         direction = str(task.get("direction", "")).lower()
         distance = float(task.get("distance", 10.0))
         unit = str(task.get("unit", "centimeters")).lower()
@@ -214,8 +283,9 @@ class Simulator:
         if action == "MOVE":
             report = self.move(task)
             if report is not None:
-                return "[WEBOTS] MOVE X verified " + json.dumps(
-                    report, sort_keys=True
+                return (
+                    f"[WEBOTS] MOVE {report.get('axis', 'x').upper()} verified "
+                    + json.dumps(report, sort_keys=True)
                 )
         elif action == "ROTATE":
             angle = math.radians(float(task.get("angle", 0.0)))
