@@ -31,3 +31,25 @@ Run the calibration tool via:
 ```bash
 python examples/calibrate_tabletop.py --output config/calibration.json
 ```
+# Calibration and coordinate transformation
+
+Member 3 calibrates measured tabletop reference points with a planar homography:
+
+```text
+pixel (u, v) -> calibrated robot-base (X, Y)
+```
+
+At least four measured pixel/robot-coordinate correspondences are required.
+The calibration file records those correspondences and the homography matrix so
+the same measured setup can be reused. A new camera pose, table pose, or robot
+base reference requires a new calibration.
+
+The coordinate frame for a transformed target is explicitly `dobot_base`.
+Pixels are never sent as robot coordinates. Z does not come from pixels: it is
+the documented tabletop height plus the configured object-height and optional
+approach offset.
+
+`CoordinateTransformer` may optionally reject locations outside the calibrated
+camera coverage region. This is a perception-validity check only; it is not a
+robot workspace, reachability, collision, or motion-safety check. Those checks
+remain in the existing gateway and robot adapter layers.

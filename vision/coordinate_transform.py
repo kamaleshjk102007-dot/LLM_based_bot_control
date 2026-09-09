@@ -15,8 +15,8 @@ from .models import Point2D, Point3D
 
 class CoordinateTransformer:
     """
-    Translates camera pixel centroids into physical DOBOT Magician Lite coordinates.
-    All outputs strictly adhere to the 'dobot_base' frame in millimeters.
+    Translates camera pixel centroids into calibrated robot-base coordinates.
+    It contains no robot workspace or motion-safety policy.
     """
 
     # Default physical block heights in millimeters (e.g. standard wooden/plastic blocks)
@@ -28,29 +28,27 @@ class CoordinateTransformer:
         "default": 25.0,
     }
 
-    # DOBOT Magician Lite physical workspace boundaries (mm)
-    MIN_RADIUS_MM: float = 140.0
-    MAX_RADIUS_MM: float = 330.0
-    MIN_Z_MM: float = -70.0
-    MAX_Z_MM: float = 160.0
-
     def __init__(
         self,
         calibration: TabletopCalibration,
         table_z_mm: float = -50.0,
         object_heights: Optional[Dict[str, float]] = None,
         grasp_offset_mm: float = 0.0,
+        perception_region_mm: Optional[Tuple[float, float, float, float]] = None,
     ):
         """
         :param calibration: Active TabletopCalibration instance.
         :param table_z_mm: Physical elevation of the tabletop in dobot_base frame.
         :param object_heights: Map of class_name -> physical height in mm.
-        :param grasp_offset_mm: Additional offset above the block top (e.g. for approach clearance).
+        :param grasp_offset_mm: Additional offset above the block top.
+        :param perception_region_mm: Optional calibrated camera coverage as
+            (min_x, max_x, min_y, max_y). This is not a robot workspace limit.
         """
         self.calibration = calibration
         self.table_z_mm = table_z_mm
         self.object_heights = object_heights or self.DEFAULT_OBJECT_HEIGHTS
         self.grasp_offset_mm = grasp_offset_mm
+        self.perception_region_mm = perception_region_mm
 
     def pixel_to_robot_3d(
         self,
@@ -77,24 +75,21 @@ class CoordinateTransformer:
             z=round(target_z, 2),
         )
 
-        # Step 3: Validate physical reachability for DOBOT Magician Lite
-        is_reachable, reason = self.check_reachability(point_3d)
+        # This only checks whether the result is inside an optional calibrated
+        # camera coverage region. Gateway/adapter layers own robot safety.
+        is_valid, reason = self.check_perception_region(point_3d)
 
-        return point_3d, is_reachable, reason
+        return point_3d, is_valid, reason
 
-    def check_reachability(self, point: Point3D) -> Tuple[bool, Optional[str]]:
+    def check_perception_region(self, point: Point3D) -> Tuple[bool, Optional[str]]:
         """
-        Verify that coordinates lie within DOBOT Magician Lite kinematic envelope.
+        Verify optional calibrated-camera coverage, never robot reachability.
         """
-        radius = float(np.sqrt(point.x ** 2 + point.y ** 2))
-
-        if radius < self.MIN_RADIUS_MM:
-            return False, f"Target too close to robot base: radius {radius:.1f}mm < {self.MIN_RADIUS_MM}mm"
-        if radius > self.MAX_RADIUS_MM:
-            return False, f"Target exceeds robot arm reach: radius {radius:.1f}mm > {self.MAX_RADIUS_MM}mm"
-        if point.x <= 0:
-            return False, f"Target is behind robot base plane: X={point.x:.1f}mm <= 0"
-        if not (self.MIN_Z_MM <= point.z <= self.MAX_Z_MM):
-            return False, f"Target Z={point.z:.1f}mm outside allowable vertical range [{self.MIN_Z_MM}, {self.MAX_Z_MM}]"
-
+        if not all(np.isfinite(value) for value in point.to_list()):
+            return False, "Calibrated coordinate is not finite."
+        if self.perception_region_mm is None:
+            return True, None
+        min_x, max_x, min_y, max_y = self.perception_region_mm
+        if not (min_x <= point.x <= max_x and min_y <= point.y <= max_y):
+            return False, "Target lies outside the configured calibrated camera region."
         return True, None

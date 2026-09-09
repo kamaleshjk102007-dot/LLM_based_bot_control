@@ -21,7 +21,7 @@ To prevent autonomous movement based on a single noisy camera frame:
 * Automatically resets if a sudden position jump $> 20.0$ mm is observed.
 
 ### Target Freshness Checker (`TargetFreshnessChecker`)
-Targets older than $1.5$ seconds are marked `status: "STALE"` and `valid: false`. Member 4 will reject stale targets.
+Targets older than $1.5$ seconds are marked `status: "STALE"` and `valid: false`. They cannot cross the explicit Member 3 -> Member 4 conversion boundary.
 
 ---
 

@@ -108,16 +108,16 @@ class VisionPipeline:
             return target, annotated_image
 
         # Step 3: Calibration & Coordinate Transform (Pixel -> dobot_base X, Y, Z in mm)
-        point_3d, is_reachable, reach_msg = self.transformer.pixel_to_robot_3d(
+        point_3d, coordinate_valid, coordinate_msg = self.transformer.pixel_to_robot_3d(
             pixel=candidate_det.center,
             class_name=requested_class,
         )
 
-        if not is_reachable:
+        if not coordinate_valid:
             target = create_invalid_robot_target(
                 class_name=requested_class,
                 status=TargetStatus.OUT_OF_REACH,
-                message=reach_msg or "Target out of reach",
+                message=coordinate_msg or "Target outside calibrated camera coverage",
                 position=point_3d,
                 confidence=candidate_det.confidence,
                 source_detection_id=candidate_det.detection_id,

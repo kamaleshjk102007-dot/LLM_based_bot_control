@@ -24,30 +24,21 @@ def test_pixel_to_robot_3d_z_calculation():
     assert msg is None
 
 
-def test_reachability_checks():
+def test_optional_calibrated_camera_region_checks():
     calib = TabletopCalibration.create_default()
-    transformer = CoordinateTransformer(calibration=calib)
+    transformer = CoordinateTransformer(
+        calibration=calib,
+        perception_region_mm=(180.0, 300.0, -120.0, 120.0),
+    )
 
-    # Within valid reach
+    # Inside the measured camera coverage region.
     valid_point = Point3D(x=220.0, y=50.0, z=-25.0)
-    reachable, msg = transformer.check_reachability(valid_point)
-    assert reachable is True
+    covered, msg = transformer.check_perception_region(valid_point)
+    assert covered is True
     assert msg is None
 
-    # Too far (radius > 330 mm)
+    # This is camera/calibration coverage only, not a DOBOT safety limit.
     too_far = Point3D(x=350.0, y=100.0, z=-25.0)
-    reachable, msg = transformer.check_reachability(too_far)
-    assert reachable is False
-    assert "exceeds robot arm reach" in msg
-
-    # Too close (radius < 140 mm)
-    too_close = Point3D(x=100.0, y=20.0, z=-25.0)
-    reachable, msg = transformer.check_reachability(too_close)
-    assert reachable is False
-    assert "too close" in msg
-
-    # Behind robot (X <= 0)
-    behind = Point3D(x=-150.0, y=50.0, z=-25.0)
-    reachable, msg = transformer.check_reachability(behind)
-    assert reachable is False
-    assert "behind robot" in msg
+    covered, msg = transformer.check_perception_region(too_far)
+    assert covered is False
+    assert "calibrated camera region" in msg

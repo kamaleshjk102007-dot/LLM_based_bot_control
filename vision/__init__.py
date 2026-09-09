@@ -18,10 +18,12 @@ from .models import (
 )
 from .pipeline import VisionPipeline
 from .target import (
+    MotionTargetConversionError,
     TargetFreshnessChecker,
     TargetSelector,
     TemporalStabilityTracker,
     create_invalid_robot_target,
+    to_motion_target,
 )
 from .visualization import VisionVisualizer
 
@@ -54,7 +56,9 @@ __all__ = [
     "TargetSelector",
     "TemporalStabilityTracker",
     "TargetFreshnessChecker",
+    "MotionTargetConversionError",
     "create_invalid_robot_target",
+    "to_motion_target",
     # Visualization & Pipeline
     "VisionVisualizer",
     "VisionPipeline",

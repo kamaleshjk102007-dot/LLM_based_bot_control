@@ -10,7 +10,54 @@ import uuid
 from typing import Deque, Dict, List, Optional, Tuple
 import numpy as np
 
+from motion.models import RobotPosition, RobotTarget as MotionRobotTarget
+
 from .models import Detection, Point3D, RobotTarget, TargetStatus
+
+
+class MotionTargetConversionError(ValueError):
+    """Raised when a perception target cannot cross into motion planning."""
+
+
+def to_motion_target(target: RobotTarget) -> MotionRobotTarget:
+    """Convert one validated vision target to Member 4's canonical model.
+
+    The conversion is deliberately explicit: perception-only status metadata
+    is retained inside ``vision`` and only robot-frame pose data crosses the
+    Member 3 -> Member 4 boundary.
+    """
+
+    if not isinstance(target, RobotTarget):
+        raise MotionTargetConversionError("target must be a vision RobotTarget")
+    if not target.valid or target.status is not TargetStatus.VALID:
+        raise MotionTargetConversionError("only VALID vision targets may be planned")
+    if target.coordinate_frame != "dobot_base":
+        raise MotionTargetConversionError(
+            "vision target must be expressed in the dobot_base frame"
+        )
+    try:
+        timestamp = datetime.fromisoformat(target.timestamp)
+    except (TypeError, ValueError) as exc:
+        raise MotionTargetConversionError("vision target timestamp is invalid") from exc
+
+    try:
+        return MotionRobotTarget(
+            target_id=target.target_id,
+            class_name=target.class_name,
+            position=RobotPosition(
+                x=target.position.x,
+                y=target.position.y,
+                z=target.position.z,
+            ),
+            confidence=target.confidence,
+            timestamp=timestamp,
+            coordinate_frame=target.coordinate_frame,
+            valid=target.valid,
+        )
+    except ValueError as exc:
+        raise MotionTargetConversionError(
+            "vision target does not satisfy the canonical motion contract"
+        ) from exc
 
 
 class TargetSelector:
