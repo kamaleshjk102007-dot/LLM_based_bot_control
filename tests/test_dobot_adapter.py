@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.adapters.base import RobotAdapterError
@@ -82,8 +84,9 @@ def test_five_mm_upward_move_requires_detailed_confirmation(config):
     assert "verified" in result[0]
     assert client.calls[0] == ("preview", "z", 5.0)
     assert client.calls[1][0:3] == ("calibrate", "z", 5.0)
-    assert '"hard_max_step_mm": 5.0' in prompts[0][1]
-    assert '"target"' in prompts[0][1]
+    confirmation = json.loads(prompts[0][1])
+    assert confirmation["hard_max_step_mm"] == pytest.approx(5.0)
+    assert "target" in confirmation
 
 
 @pytest.mark.parametrize(
