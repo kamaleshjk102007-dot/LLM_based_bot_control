@@ -1,8 +1,6 @@
-"""Robot registry package.
+"""Universal robot contracts and configuration registry."""
 
-Hardware-independent robot discovery and capability metadata live here.
-"""
-
+from robots.interface import RobotInterface
 from robots.registry import (
     DuplicateRobotError,
     RobotConfigurationError,
@@ -14,6 +12,7 @@ from robots.registry import (
 __all__ = [
     "DuplicateRobotError",
     "RobotConfigurationError",
+    "RobotInterface",
     "RobotNotFoundError",
     "RobotRegistry",
     "RobotRegistryError",
