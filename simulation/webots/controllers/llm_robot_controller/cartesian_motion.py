@@ -112,3 +112,28 @@ def displacement_report(before_m, after_m, requested_x_m, tolerance_m=0.00075):
     return axis_displacement_report(
         before_m, after_m, "x", requested_x_m, tolerance_m
     )
+
+
+def damped_xyz_step(columns, error, damping=1e-5, max_step=0.04):
+    """Solve J.T (J J.T + damping I)^-1 error for three world axes."""
+    if damping <= 0 or max_step <= 0:
+        raise ValueError("Damping and maximum step must be positive.")
+    matrix = [
+        [sum(column[i] * column[j] for column in columns)
+         + (damping if i == j else 0.0) for j in range(3)]
+        + [error[i]] for i in range(3)
+    ]
+    for i in range(3):
+        pivot = max(range(i, 3), key=lambda row: abs(matrix[row][i]))
+        matrix[i], matrix[pivot] = matrix[pivot], matrix[i]
+        divisor = matrix[i][i]
+        matrix[i] = [value / divisor for value in matrix[i]]
+        for row in range(3):
+            if row != i:
+                factor = matrix[row][i]
+                matrix[row] = [a - factor * b
+                               for a, b in zip(matrix[row], matrix[i])]
+    correction = [sum(column[i] * matrix[i][3] for i in range(3))
+                  for column in columns]
+    scale = min(1.0, max_step / max(max(map(abs, correction)), 1e-12))
+    return tuple(value * scale for value in correction)

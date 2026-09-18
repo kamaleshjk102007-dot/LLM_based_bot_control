@@ -11,8 +11,7 @@ from controller import Supervisor
 
 from cartesian_motion import (
     axis_displacement_report,
-    damped_scalar_step,
-    damped_xz_step,
+    damped_xyz_step,
     displacement_report,
     requested_axis_metres,
 )
@@ -94,36 +93,39 @@ class Simulator:
     def end_effector_position(self):
         return tuple(self.nodes["END_EFFECTOR"].getPosition())
 
-    def xz_columns(self, end_position):
-        orientation = self.nodes["ARM_BASE"].getOrientation()
-        axis = (orientation[1], orientation[4], orientation[7])
+    def settle_cartesian(self):
+        """Wait for measured motion to stop before measuring or correcting."""
+        previous = self.end_effector_position()
+        stable = 0
+        for _ in range(240):
+            self.advance(1)
+            current = self.end_effector_position()
+            stable = stable + 1 if math.dist(previous, current) <= 1e-6 else 0
+            if stable >= 8:
+                return
+            previous = current
+        raise ValueError("Cartesian joints did not settle.")
 
-        def column(pivot):
+    def xyz_columns(self, end_position):
+        """World-space Jacobian for the base, shoulder and elbow joints."""
+        base = self.nodes["ARM_BASE"]
+        orientation = base.getOrientation()
+        base_axis = (orientation[2], orientation[5], orientation[8])
+        arm_axis = (orientation[1], orientation[4], orientation[7])
+
+        def column(axis, pivot):
             radius = tuple(a - b for a, b in zip(end_position, pivot))
-            cross = (
+            return (
                 axis[1] * radius[2] - axis[2] * radius[1],
                 axis[2] * radius[0] - axis[0] * radius[2],
                 axis[0] * radius[1] - axis[1] * radius[0],
             )
-            return cross[0], cross[2]
 
         return (
-            column(self.nodes["SHOULDER_LINK"].getPosition()),
-            column(self.nodes["ELBOW_LINK"].getPosition()),
+            column(base_axis, base.getPosition()),
+            column(arm_axis, self.nodes["SHOULDER_LINK"].getPosition()),
+            column(arm_axis, self.nodes["ELBOW_LINK"].getPosition()),
         )
-
-    def base_y_jacobian(self, end_position):
-        """Return d(end-effector Y)/d(base angle) in world coordinates."""
-        orientation = self.nodes["ARM_BASE"].getOrientation()
-        axis = (orientation[2], orientation[5], orientation[8])
-        pivot = self.nodes["ARM_BASE"].getPosition()
-        radius = tuple(a - b for a, b in zip(end_position, pivot))
-        cross = (
-            axis[1] * radius[2] - axis[2] * radius[1],
-            axis[2] * radius[0] - axis[0] * radius[2],
-            axis[0] * radius[1] - axis[1] * radius[0],
-        )
-        return cross[1]
 
     def show_motion_indicator(self, before, after, report):
         # Pins are anchored at the exact measured positions. Their tops and the
@@ -164,130 +166,58 @@ class Simulator:
         )
 
     def move_cartesian_x(self, requested_x_m):
-        if abs(requested_x_m) > 0.020:
-            raise ValueError("Webots Cartesian X MOVE is limited to 20 mm.")
-        self.advance(20)
-        before = self.end_effector_position()
-        desired = (before[0] + requested_x_m, before[2])
-        original_targets = dict(self.targets)
-
-        for _ in range(80):
-            current = self.end_effector_position()
-            error = (desired[0] - current[0], desired[1] - current[2])
-            if math.hypot(*error) <= 0.00075:
-                break
-            shoulder_step, elbow_step = damped_xz_step(
-                self.xz_columns(current), error
-            )
-            self.targets["shoulder_motor"] += shoulder_step
-            self.targets["elbow_motor"] += elbow_step
-            self.set_targets()
-            self.advance(8)
-
-        self.advance(20)
-        after = self.end_effector_position()
-        report = displacement_report(before, after, requested_x_m)
-        report["y_drift_mm"] = (after[1] - before[1]) * 1000.0
-        report["z_drift_mm"] = (after[2] - before[2]) * 1000.0
-        report["verified"] = bool(
-            report["verified"]
-            and abs(report["y_drift_mm"]) <= report["tolerance_mm"]
-            and abs(report["z_drift_mm"]) <= report["tolerance_mm"]
-        )
-        self.show_motion_indicator(before, after, report)
-        if not report["verified"]:
-            self.targets = original_targets
-            self.set_targets()
-            self.advance(40)
-            raise ValueError(
-                "Cartesian MOVE verification failed: "
-                + json.dumps(report, sort_keys=True)
-            )
-        self.stopped = False
-        return report
-
-    def move_cartesian_z(self, requested_z_m):
-        if abs(requested_z_m) > 0.020:
-            raise ValueError("Webots Cartesian Z MOVE is limited to 20 mm.")
-        self.advance(20)
-        before = self.end_effector_position()
-        desired = (before[0], before[2] + requested_z_m)
-        original_targets = dict(self.targets)
-
-        for _ in range(80):
-            current = self.end_effector_position()
-            error = (desired[0] - current[0], desired[1] - current[2])
-            if math.hypot(*error) <= 0.00075:
-                break
-            shoulder_step, elbow_step = damped_xz_step(
-                self.xz_columns(current), error
-            )
-            self.targets["shoulder_motor"] += shoulder_step
-            self.targets["elbow_motor"] += elbow_step
-            self.set_targets()
-            self.advance(8)
-
-        self.advance(20)
-        after = self.end_effector_position()
-        report = axis_displacement_report(before, after, "z", requested_z_m)
-        report["x_drift_mm"] = (after[0] - before[0]) * 1000.0
-        report["y_drift_mm"] = (after[1] - before[1]) * 1000.0
-        report["verified"] = bool(
-            report["verified"]
-            and abs(report["x_drift_mm"]) <= report["tolerance_mm"]
-            and abs(report["y_drift_mm"]) <= report["tolerance_mm"]
-        )
-        self.show_motion_indicator(before, after, report)
-        if not report["verified"]:
-            self.targets = original_targets
-            self.set_targets()
-            self.advance(40)
-            raise ValueError(
-                "Cartesian MOVE verification failed: "
-                + json.dumps(report, sort_keys=True)
-            )
-        self.stopped = False
-        return report
+        return self.move_cartesian_axis("x", requested_x_m)
 
     def move_cartesian_y(self, requested_y_m):
-        if abs(requested_y_m) > 0.020:
-            raise ValueError("Webots Cartesian Y MOVE is limited to 20 mm.")
-        self.advance(20)
+        return self.move_cartesian_axis("y", requested_y_m)
+
+    def move_cartesian_z(self, requested_z_m):
+        return self.move_cartesian_axis("z", requested_z_m)
+
+    def move_cartesian_axis(self, axis, requested_m):
+        if not math.isfinite(requested_m) or abs(requested_m) > 0.020:
+            raise ValueError(f"Webots Cartesian {axis.upper()} MOVE is limited to 20 mm.")
+        self.settle_cartesian()
         before = self.end_effector_position()
-        desired_y = before[1] + requested_y_m
+        desired = list(before)
+        desired[("x", "y", "z").index(axis)] += requested_m
         original_targets = dict(self.targets)
+        try:
+            for _ in range(80):
+                current = self.end_effector_position()
+                error = tuple(goal - value for goal, value in zip(desired, current))
+                if math.hypot(*error) <= 0.00025:
+                    break
+                steps = damped_xyz_step(self.xyz_columns(current), error)
+                for name, step in zip(
+                    ("base_motor", "shoulder_motor", "elbow_motor"), steps
+                ):
+                    self.targets[name] += step
+                self.set_targets()
+                self.settle_cartesian()
 
-        for _ in range(80):
-            current = self.end_effector_position()
-            error_y = desired_y - current[1]
-            if abs(error_y) <= 0.00075:
-                break
-            base_step = damped_scalar_step(
-                self.base_y_jacobian(current), error_y
-            )
-            self.targets["base_motor"] += base_step
-            self.set_targets()
-            self.advance(8)
-
-        self.advance(20)
-        after = self.end_effector_position()
-        report = axis_displacement_report(before, after, "y", requested_y_m)
-        report["x_drift_mm"] = (after[0] - before[0]) * 1000.0
-        report["z_drift_mm"] = (after[2] - before[2]) * 1000.0
-        report["verified"] = bool(
-            report["verified"]
-            and abs(report["x_drift_mm"]) <= report["tolerance_mm"]
-            and abs(report["z_drift_mm"]) <= report["tolerance_mm"]
-        )
-        self.show_motion_indicator(before, after, report)
-        if not report["verified"]:
+            after = self.end_effector_position()
+            report = (displacement_report(before, after, requested_m)
+                      if axis == "x" else
+                      axis_displacement_report(before, after, axis, requested_m))
+            for index, other_axis in enumerate(("x", "y", "z")):
+                if other_axis != axis:
+                    drift = (after[index] - before[index]) * 1000.0
+                    report[f"{other_axis}_drift_mm"] = drift
+                    report["verified"] = bool(
+                        report["verified"] and abs(drift) <= report["tolerance_mm"]
+                    )
+            self.show_motion_indicator(before, after, report)
+            if not report["verified"]:
+                raise ValueError(
+                    "Cartesian MOVE verification failed: "
+                    + json.dumps(report, sort_keys=True)
+                )
+        except Exception:
             self.targets = original_targets
             self.set_targets()
             self.advance(40)
-            raise ValueError(
-                "Cartesian MOVE verification failed: "
-                + json.dumps(report, sort_keys=True)
-            )
+            raise
         self.stopped = False
         return report
 
@@ -444,49 +374,54 @@ class Simulator:
         }
 
 
-sim = Simulator()
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind((HOST, PORT))
-server.listen(4)
-server.setblocking(False)
-print(f"Webots LLM controller listening on {HOST}:{PORT}")
+def main():
+    sim = Simulator()
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((HOST, PORT))
+    server.listen(4)
+    server.setblocking(False)
+    print(f"Webots LLM controller listening on {HOST}:{PORT}")
 
-while sim.robot.step(TIME_STEP) != -1:
-    try:
-        client, _ = server.accept()
-    except BlockingIOError:
-        continue
-    client.settimeout(1.0)
-    with client:
+    while sim.robot.step(TIME_STEP) != -1:
         try:
-            data = bytearray()
-            while b"\n" not in data:
-                chunk = client.recv(65536)
-                if not chunk:
-                    break
-                data.extend(chunk)
-            request = json.loads(bytes(data).split(b"\n", 1)[0])
-            if request.get("type") == "status":
-                response = sim.status()
-            elif request.get("type") == "execute":
-                tasks = request.get("tasks", [])
-                if not isinstance(tasks, list) or not tasks:
-                    raise ValueError("At least one task is required.")
-                results = [sim.execute_task(task) for task in tasks]
-                response = {
-                    "ok": True,
-                    "state": sim.status()["state"],
-                    "results": results,
-                    "status": sim.status(),
-                }
-            else:
-                raise ValueError("Unknown request type.")
-        except Exception as exc:
-            response = {"ok": False, "error": str(exc)}
-        try:
-            client.sendall((json.dumps(response) + "\n").encode("utf-8"))
-        except OSError as exc:
-            # The caller may have reached an older/shorter timeout while this
-            # measured move was completing. Keep the simulator controller alive.
-            print(f"Webots response client disconnected: {type(exc).__name__}")
+            client, _ = server.accept()
+        except BlockingIOError:
+            continue
+        client.settimeout(1.0)
+        with client:
+            try:
+                data = bytearray()
+                while b"\n" not in data:
+                    chunk = client.recv(65536)
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                request = json.loads(bytes(data).split(b"\n", 1)[0])
+                if request.get("type") == "status":
+                    response = sim.status()
+                elif request.get("type") == "execute":
+                    tasks = request.get("tasks", [])
+                    if not isinstance(tasks, list) or not tasks:
+                        raise ValueError("At least one task is required.")
+                    results = [sim.execute_task(task) for task in tasks]
+                    response = {
+                        "ok": True,
+                        "state": sim.status()["state"],
+                        "results": results,
+                        "status": sim.status(),
+                    }
+                else:
+                    raise ValueError("Unknown request type.")
+            except Exception as exc:
+                response = {"ok": False, "error": str(exc)}
+            try:
+                client.sendall((json.dumps(response) + "\n").encode("utf-8"))
+            except OSError as exc:
+                # The caller may have reached an older/shorter timeout while this
+                # measured move was completing. Keep the simulator controller alive.
+                print(f"Webots response client disconnected: {type(exc).__name__}")
+
+
+if __name__ == "__main__":
+    main()
