@@ -60,7 +60,9 @@ def webots_system():
         capabilities=frozenset({Action.MOVE, Action.ROTATE, Action.HOME, Action.STOP, Action.GET_STATUS}),
         status="ONLINE",
     )
-    client = WebotsClient(timeout=30.0)
+    # Sequential measured moves may need several settle cycles. This changes
+    # only the response wait, not movement or verification behavior.
+    client = WebotsClient(timeout=90.0)
     adapter = WebotsRobotAdapter(robot, client)
     registry = RobotRegistry()
     registry.register(robot)
