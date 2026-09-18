@@ -213,7 +213,8 @@ def live_system():
     # loop (roughly 20 seconds of simulation time). The production adapter
     # already honors an injected client's timeout, so give live smoke tests a
     # long enough response window without changing adapter behavior.
-    client = WebotsClient(timeout=30.0)
+    # Match the integration suite response wait without changing tolerances.
+    client = WebotsClient(timeout=90.0)
     controller, gateway, adapter = integration_system(client)
     return controller, gateway, adapter, client
 
