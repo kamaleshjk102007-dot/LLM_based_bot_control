@@ -117,6 +117,20 @@ def test_floating_noise_is_zero():
     assert plan.steps == []
 
 
+def test_optional_translation_envelope_rejects_unreachable_route():
+    bounded = MotionPlanner(MotionPlanningPolicy(
+        max_translation_step_mm=5,
+        max_rotation_step_degrees=5,
+        coordinate_frame="robot_base",
+        max_axis_translation_mm=20,
+        max_total_translation_mm=30,
+    ))
+    with pytest.raises(MotionPlanningError, match="on: X"):
+        bounded.plan(RobotPosition(x=0, y=0, z=0), target(x=21), "r")
+    with pytest.raises(MotionPlanningError, match="total translation"):
+        bounded.plan(RobotPosition(x=0, y=0, z=0), target(x=20, y=11), "r")
+
+
 def test_plan_is_deterministic():
     current = RobotPosition(x=0, y=0, z=0, r=0)
     destination = target(x=6, y=2, z=-1, r=3)

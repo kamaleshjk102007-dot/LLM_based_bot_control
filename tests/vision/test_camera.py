@@ -1,6 +1,9 @@
 """Unit tests for vision.camera."""
 
-from vision.camera import FileCamera, MockCamera, USBCamera
+import base64
+import numpy as np
+
+from vision.camera import FileCamera, MockCamera, USBCamera, WebotsTcpCamera
 
 
 def test_mock_camera_lifecycle():
@@ -59,3 +62,32 @@ def test_file_camera_nonexistent():
     assert not cam.is_opened()
     assert cam.read() is None
     cam.release()
+
+
+def test_webots_tcp_camera_decodes_bgra_frame():
+    bgra = np.zeros((2, 3, 4), dtype=np.uint8)
+    bgra[:, :, 2] = 255
+    bgra[:, :, 3] = 255
+
+    def request(payload):
+        assert payload == {"type": "camera_frame"}
+        return {
+            "width": 3,
+            "height": 2,
+            "image_bgra_base64": base64.b64encode(bgra.tobytes()).decode("ascii"),
+        }
+
+    camera = WebotsTcpCamera(request)
+    assert camera.open() is True
+    frame = camera.read()
+    assert frame is not None
+    assert frame.image.shape == (2, 3, 3)
+    assert frame.image[0, 0].tolist() == [0, 0, 255]
+    camera.release()
+    assert camera.is_opened() is False
+
+
+def test_webots_tcp_camera_rejects_incomplete_frame_response():
+    camera = WebotsTcpCamera(lambda payload: {"width": 1, "height": 1})
+    assert camera.open() is False
+    assert camera.read() is None

@@ -13,6 +13,7 @@ HOW TO TEST:
 import sys
 import os
 import time
+import argparse
 import cv2
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -40,6 +41,20 @@ def print_target_console(target):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run live Member 3 webcam detection")
+    parser.add_argument(
+        "--camera-index",
+        type=int,
+        default=0,
+        help="OpenCV camera device index (default: 0).",
+    )
+    parser.add_argument(
+        "--directshow",
+        action="store_true",
+        help="Use Windows DirectShow; recommended for the second USB camera.",
+    )
+    args = parser.parse_args()
+
     print(SEPARATOR)
     print("  MEMBER 3 -- LIVE WEBCAM TEST")
     print(SEPARATOR)
@@ -59,11 +74,11 @@ def main():
     print()
 
     # --- Setup ---
-    camera = USBCamera(device_index=0, width=640, height=480)
+    camera = USBCamera(device_index=args.camera_index, width=640, height=480, backend=cv2.CAP_DSHOW if args.directshow else None)
     opened = camera.open()
 
     if not opened:
-        print("  [ERROR] Could not open webcam (device index 0).")
+        print(f"  [ERROR] Could not open webcam (device index {args.camera_index}).")
         print("  Try changing device_index to 1 or 2 if you have multiple cameras.")
         return
 

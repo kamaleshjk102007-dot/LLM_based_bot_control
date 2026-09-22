@@ -3,6 +3,7 @@
 The model is for visual software testing only. It is not a calibrated digital twin.
 """
 
+import base64
 import json
 import math
 import socket
@@ -69,6 +70,24 @@ class Simulator:
         if self.wrist_sensor is None:
             raise RuntimeError("Webots world is missing wrist_sensor.")
         self.wrist_sensor.enable(TIME_STEP)
+        self.camera = self.robot.getDevice("tabletop_camera")
+        if self.camera is None:
+            raise RuntimeError("Webots world is missing tabletop_camera.")
+        self.camera.enable(TIME_STEP)
+        self.calibration_markers = {
+            name: self.robot.getFromDef(def_name)
+            for name, def_name in {
+                "magenta_marker": "CALIBRATION_MAGENTA",
+                "cyan_marker": "CALIBRATION_CYAN",
+                "green_marker": "CALIBRATION_GREEN",
+                "yellow_marker": "CALIBRATION_YELLOW",
+            }.items()
+        }
+        if any(node is None for node in self.calibration_markers.values()):
+            raise RuntimeError("Webots world is missing calibration markers.")
+        self.demo_target = self.robot.getFromDef("DEMO_RED_BLOCK")
+        if self.demo_target is None:
+            raise RuntimeError("Webots world is missing DEMO_RED_BLOCK.")
         self.stopped = False
         for name, motor in self.motors.items():
             motor.setVelocity(0.7)
@@ -189,10 +208,24 @@ class Simulator:
                 if math.hypot(*error) <= 0.00025:
                     break
                 steps = damped_xyz_step(self.xyz_columns(current), error)
-                for name, step in zip(
-                    ("base_motor", "shoulder_motor", "elbow_motor"), steps
-                ):
-                    self.targets[name] += step
+                joint_steps = dict(
+                    zip(("base_motor", "shoulder_motor", "elbow_motor"), steps)
+                )
+                proposed = {
+                    name: self.targets[name] + step
+                    for name, step in joint_steps.items()
+                }
+                limited_joints = [
+                    name for name, value in proposed.items()
+                    if not LIMITS[name][0] <= value <= LIMITS[name][1]
+                ]
+                if limited_joints:
+                    raise ValueError(
+                        "Cartesian target reaches Webots joint limit; "
+                        "command rejected before further correction: "
+                        + ", ".join(limited_joints)
+                    )
+                self.targets.update(proposed)
                 self.set_targets()
                 self.settle_cartesian()
 
@@ -373,7 +406,34 @@ class Simulator:
             },
         }
 
-
+    def camera_frame(self):
+        """Return one raw simulated camera frame for the application demo."""
+        image = self.camera.getImage()
+        if image is None:
+            raise ValueError("Webots camera has not produced a frame yet.")
+        return {
+            "ok": True,
+            "width": self.camera.getWidth(),
+            "height": self.camera.getHeight(),
+            "image_bgra_base64": base64.b64encode(image).decode("ascii"),
+        }
+    def calibration_references(self):
+        """Expose known simulated marker coordinates for camera calibration."""
+        markers = {}
+        for name, node in self.calibration_markers.items():
+            position = node.getPosition()
+            markers[name] = {"x": position[0] * 1000.0, "y": position[1] * 1000.0}
+        target_position = self.demo_target.getPosition()
+        return {
+            "ok": True,
+            "coordinate_frame": "dobot_base",
+            "markers": markers,
+            "target_plane_z_mm": target_position[2] * 1000.0,
+            "validation_target": {
+                "x": target_position[0] * 1000.0,
+                "y": target_position[1] * 1000.0,
+            },
+        }
 def main():
     sim = Simulator()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -400,6 +460,10 @@ def main():
                 request = json.loads(bytes(data).split(b"\n", 1)[0])
                 if request.get("type") == "status":
                     response = sim.status()
+                elif request.get("type") == "camera_frame":
+                    response = sim.camera_frame()
+                elif request.get("type") == "calibration_references":
+                    response = sim.calibration_references()
                 elif request.get("type") == "execute":
                     tasks = request.get("tasks", [])
                     if not isinstance(tasks, list) or not tasks:

@@ -34,6 +34,12 @@ class MotionPlanningPolicy(BaseModel):
     rotation_zero_tolerance_degrees: Annotated[
         float, Field(strict=True, allow_inf_nan=False, ge=0)
     ] = 1e-9
+    max_axis_translation_mm: Annotated[
+        float, Field(strict=True, allow_inf_nan=False, gt=0)
+    ] | None = None
+    max_total_translation_mm: Annotated[
+        float, Field(strict=True, allow_inf_nan=False, gt=0)
+    ] | None = None
 
     @model_validator(mode="after")
     def validate_tolerances(self) -> "MotionPlanningPolicy":
@@ -94,6 +100,25 @@ class MotionPlanner:
             ("Y", target.position.y - current.y),
             ("Z", target.position.z - current.z),
         )
+        translation_magnitudes = {axis: abs(delta) for axis, delta in deltas}
+        if policy.max_axis_translation_mm is not None:
+            exceeded = [
+                axis for axis, magnitude in translation_magnitudes.items()
+                if magnitude > policy.max_axis_translation_mm
+            ]
+            if exceeded:
+                raise MotionPlanningError(
+                    "Target exceeds the policy translation limit on: "
+                    + ", ".join(exceeded)
+                )
+        if (
+            policy.max_total_translation_mm is not None
+            and sum(translation_magnitudes.values())
+            > policy.max_total_translation_mm
+        ):
+            raise MotionPlanningError(
+                "Target exceeds the policy total translation limit"
+            )
         steps: list[MotionStep] = []
         for axis, delta in deltas:
             self._append_steps(

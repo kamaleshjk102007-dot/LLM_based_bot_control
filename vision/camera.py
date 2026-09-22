@@ -6,8 +6,9 @@ recorded files, and synthetic mock cameras.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+import base64
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
@@ -59,19 +60,21 @@ class USBCamera(BaseCamera):
         height: int = 480,
         fps: int = 30,
         name: str = "usb_camera",
+        backend: Optional[int] = None,
     ):
         super().__init__(name=name)
         self.device_index = device_index
         self.width = width
         self.height = height
         self.fps = fps
+        self.backend = backend
         self._cap: Optional[cv2.VideoCapture] = None
 
     def open(self) -> bool:
         if self._cap is not None and self._cap.isOpened():
             return True
 
-        self._cap = cv2.VideoCapture(self.device_index)
+        self._cap = cv2.VideoCapture(self.device_index) if self.backend is None else cv2.VideoCapture(self.device_index, self.backend)
         if not self._cap.isOpened():
             self._cap = None
             return False
@@ -350,4 +353,72 @@ class WebotsCamera(BaseCamera):
                     self.camera_device.disable()
             except Exception:
                 pass
+        self._opened = False
+
+
+class WebotsTcpCamera(BaseCamera):
+    """Read a simulated Webots camera through the local simulator protocol."""
+
+    def __init__(
+        self,
+        request: Callable[[Dict[str, Any]], Dict[str, Any]],
+        name: str = "webots_tcp_camera",
+    ):
+        super().__init__(name=name)
+        self._request = request
+        self._opened = False
+
+    def open(self) -> bool:
+        try:
+            self._validate_response(self._request({"type": "camera_frame"}))
+        except Exception:
+            self._opened = False
+            return False
+        self._opened = True
+        return True
+
+    def read(self) -> Optional[Frame]:
+        if not self.is_opened():
+            return None
+        try:
+            response = self._request({"type": "camera_frame"})
+            width, height, encoded = self._validate_response(response)
+            raw = base64.b64decode(encoded, validate=True)
+            if len(raw) != width * height * 4:
+                return None
+            bgra = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 4))
+            image = cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
+        except Exception:
+            return None
+
+        self._frame_count += 1
+        return Frame(
+            frame_id=f"{self.name}_{self._frame_count:06d}",
+            timestamp=time.time(),
+            width=width,
+            height=height,
+            image=image,
+        )
+
+    @staticmethod
+    def _validate_response(response: Dict[str, Any]) -> Tuple[int, int, str]:
+        if not isinstance(response, dict):
+            raise ValueError("Webots camera response must be an object")
+        width = response.get("width")
+        height = response.get("height")
+        encoded = response.get("image_bgra_base64")
+        if (
+            not isinstance(width, int)
+            or not isinstance(height, int)
+            or width <= 0
+            or height <= 0
+            or not isinstance(encoded, str)
+        ):
+            raise ValueError("Webots camera response is incomplete")
+        return width, height, encoded
+
+    def is_opened(self) -> bool:
+        return self._opened
+
+    def release(self) -> None:
         self._opened = False

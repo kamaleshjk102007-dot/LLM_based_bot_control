@@ -113,3 +113,14 @@ def test_solver_failure_restores_targets(controller, monkeypatch):
     with pytest.raises(ValueError, match='solver failed'):
         sim.move_cartesian_x(.005)
     assert sim.targets == original
+
+
+def test_joint_limit_is_rejected_before_applying_correction(controller, monkeypatch):
+    sim = arm(controller, controller['LIMITS']['base_motor'][1])
+    original = dict(sim.targets)
+    monkeypatch.setitem(controller, 'damped_xyz_step', lambda *args: (.01, 0., 0.))
+
+    with pytest.raises(ValueError, match='joint limit'):
+        sim.move_cartesian_x(.005)
+
+    assert sim.targets == original
