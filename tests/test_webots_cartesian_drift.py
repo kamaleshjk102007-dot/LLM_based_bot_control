@@ -124,3 +124,25 @@ def test_joint_limit_is_rejected_before_applying_correction(controller, monkeypa
         sim.move_cartesian_x(.005)
 
     assert sim.targets == original
+
+
+def test_settle_waits_for_joint_feedback(controller):
+    sim = controller['Simulator'].__new__(controller['Simulator'])
+    values = {'base_motor': 0.0}
+
+    class Sensor:
+        def getValue(self):
+            return values['base_motor']
+
+    ticks = {'count': 0}
+    sim.joint_sensors = {'base_motor': Sensor()}
+    sim.end_effector_position = lambda: (0.0, 0.0, 0.0)
+
+    def advance(_):
+        ticks['count'] += 1
+        if ticks['count'] <= 3:
+            values['base_motor'] += 0.001
+
+    sim.advance = advance
+    sim.settle_cartesian()
+    assert ticks['count'] >= 11

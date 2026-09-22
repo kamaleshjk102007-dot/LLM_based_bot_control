@@ -67,9 +67,25 @@ class Simulator:
             )
         self.targets = dict(HOME)
         self.wrist_sensor = self.robot.getDevice("wrist_sensor")
-        if self.wrist_sensor is None:
-            raise RuntimeError("Webots world is missing wrist_sensor.")
-        self.wrist_sensor.enable(TIME_STEP)
+        self.joint_sensors = {
+            motor: self.robot.getDevice(sensor)
+            for motor, sensor in {
+                "base_motor": "base_sensor",
+                "shoulder_motor": "shoulder_sensor",
+                "elbow_motor": "elbow_sensor",
+            }.items()
+        }
+        self.joint_sensors["wrist_motor"] = self.wrist_sensor
+        missing_sensors = [
+            motor for motor, sensor in self.joint_sensors.items() if sensor is None
+        ]
+        if missing_sensors:
+            raise RuntimeError(
+                "Webots world is missing joint sensors: "
+                + ", ".join(missing_sensors)
+            )
+        for sensor in self.joint_sensors.values():
+            sensor.enable(TIME_STEP)
         self.camera = self.robot.getDevice("tabletop_camera")
         if self.camera is None:
             raise RuntimeError("Webots world is missing tabletop_camera.")
@@ -113,16 +129,29 @@ class Simulator:
         return tuple(self.nodes["END_EFFECTOR"].getPosition())
 
     def settle_cartesian(self):
-        """Wait for measured motion to stop before measuring or correcting."""
+        """Wait until measured pose and joint feedback are both stationary."""
         previous = self.end_effector_position()
+        sensors = getattr(self, "joint_sensors", {})
+        previous_joints = {
+            name: sensor.getValue() for name, sensor in sensors.items()
+        }
         stable = 0
         for _ in range(240):
             self.advance(1)
             current = self.end_effector_position()
-            stable = stable + 1 if math.dist(previous, current) <= 1e-6 else 0
+            current_joints = {
+                name: sensor.getValue() for name, sensor in sensors.items()
+            }
+            pose_stable = math.dist(previous, current) <= 1e-6
+            joints_stable = all(
+                abs(current_joints[name] - previous_joints[name]) <= 1e-5
+                for name in sensors
+            )
+            stable = stable + 1 if pose_stable and joints_stable else 0
             if stable >= 8:
                 return
             previous = current
+            previous_joints = current_joints
         raise ValueError("Cartesian joints did not settle.")
 
     def xyz_columns(self, end_position):
@@ -403,6 +432,10 @@ class Simulator:
             "joint_targets_degrees": {
                 name: round(math.degrees(value), 2)
                 for name, value in self.targets.items()
+            },
+            "measured_joint_degrees": {
+                name: round(math.degrees(sensor.getValue()), 2)
+                for name, sensor in self.joint_sensors.items()
             },
         }
 
