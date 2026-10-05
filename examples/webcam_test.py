@@ -112,22 +112,12 @@ def main():
     print()
 
     # --- Camera Selection ---
-    cam_idx = 0
-    if len(sys.argv) > 1 and sys.argv[1].isdigit():
-        cam_idx = int(sys.argv[1])
-    else:
-        # Check if camera 1 is available (using DirectShow on Windows)
-        backend = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
-        test_cap = cv2.VideoCapture(1, backend)
-        if test_cap.isOpened():
-            test_cap.release()
-            print("  Detected external / DOBOT camera at index 1!")
-            cam_idx = 1
-        else:
-            cam_idx = 0
-
+    # Use the explicit command-line selection so the laptop/table camera never
+    # changes silently based on whichever device OpenCV happens to find first.
+    cam_idx = args.camera_index
+    backend = cv2.CAP_DSHOW if args.directshow else None
     print(f"  Connecting to camera index: {cam_idx}")
-    camera = USBCamera(device_index=cam_idx, width=640, height=480)
+    camera = USBCamera(device_index=cam_idx, width=640, height=480, backend=backend)
     opened = camera.open()
 
     if not opened:
