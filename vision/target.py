@@ -69,8 +69,15 @@ class TargetSelector:
       2+ matches -> AMBIGUOUS (Never randomly pick!)
     """
 
-    def __init__(self, min_confidence: float = 0.60):
+    def __init__(
+        self,
+        min_confidence: float = 0.60,
+        disambiguation_strategy: str = "strict",
+        target_index: int = 0,
+    ):
         self.min_confidence = min_confidence
+        self.disambiguation_strategy = disambiguation_strategy
+        self.target_index = target_index
 
     def select(
         self,
@@ -102,6 +109,29 @@ class TargetSelector:
             )
 
         if len(confident_matches) > 1:
+            # A caller may request a deterministic rule for a multi-object
+            # task.  The default remains strict: vision never chooses an
+            # object silently before a motion request.
+            sorted_by_x = sorted(confident_matches, key=lambda detection: detection.center.x)
+            if self.disambiguation_strategy in ("index", "leftmost"):
+                index = self.target_index % len(sorted_by_x)
+                return (
+                    sorted_by_x[index],
+                    TargetStatus.VALID,
+                    f"Selected object #{index + 1} of {len(sorted_by_x)} from left to right.",
+                )
+            if self.disambiguation_strategy == "rightmost":
+                return (
+                    sorted_by_x[-1],
+                    TargetStatus.VALID,
+                    f"Selected rightmost '{requested_class}' from {len(sorted_by_x)} candidates.",
+                )
+            if self.disambiguation_strategy == "highest_confidence":
+                return (
+                    max(confident_matches, key=lambda detection: detection.confidence),
+                    TargetStatus.VALID,
+                    f"Selected highest-confidence '{requested_class}' from {len(confident_matches)} candidates.",
+                )
             return (
                 None,
                 TargetStatus.AMBIGUOUS,

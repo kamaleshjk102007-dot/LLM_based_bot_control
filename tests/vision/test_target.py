@@ -64,6 +64,36 @@ def test_target_selector_multiple_matches_ambiguous():
     assert "Multiple" in msg
 
 
+def test_target_selector_can_explicitly_choose_leftmost_match():
+    """A multi-object choice is allowed only when the caller supplies a rule."""
+    selector = TargetSelector(min_confidence=0.60, disambiguation_strategy="leftmost")
+    dets = [
+        make_dummy_detection("right", "red_block", 0.94, cx=350, cy=150),
+        make_dummy_detection("left", "red_block", 0.91, cx=150, cy=250),
+    ]
+
+    det, status, msg = selector.select(dets, "red_block")
+
+    assert det is not None
+    assert det.detection_id == "left"
+    assert status == TargetStatus.VALID
+    assert "left to right" in msg
+
+
+def test_target_selector_can_explicitly_choose_highest_confidence_match():
+    selector = TargetSelector(min_confidence=0.60, disambiguation_strategy="highest_confidence")
+    dets = [
+        make_dummy_detection("lower", "red_block", 0.82, cx=150, cy=150),
+        make_dummy_detection("higher", "red_block", 0.94, cx=350, cy=250),
+    ]
+
+    det, status, _ = selector.select(dets, "red_block")
+
+    assert det is not None
+    assert det.detection_id == "higher"
+    assert status == TargetStatus.VALID
+
+
 def test_target_freshness():
     freshness = TargetFreshnessChecker(max_age_seconds=1.0)
 

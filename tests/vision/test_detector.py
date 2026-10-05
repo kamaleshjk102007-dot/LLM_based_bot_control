@@ -1,6 +1,8 @@
 """Unit tests for vision.detector."""
 
 import pytest
+import cv2
+import numpy as np
 
 from vision.camera import MockCamera
 from vision.detector import ColorShapeDetector
@@ -43,6 +45,24 @@ def test_detect_multiple_colors():
     assert "blue_block" in classes_found
     assert "green_block" in classes_found
     assert len(detections) == 3
+
+
+def test_detect_cyan_blue_block():
+    """Bright cyan-blue objects from a USB camera remain blue detections."""
+    image = np.zeros((480, 640, 3), dtype=np.uint8)
+    # HSV hue 96 is a cyan-blue shade below the previous blue threshold of 100.
+    image[160:260, 270:370] = cv2.cvtColor(
+        np.uint8([[[96, 220, 230]]]), cv2.COLOR_HSV2BGR
+    )[0, 0]
+    cam = MockCamera(width=640, height=480)
+    cam.open()
+    frame = cam.read()
+    cam.release()
+    frame.image = image
+
+    detections = ColorShapeDetector().detect(frame)
+
+    assert [d.class_name for d in detections] == ["blue_block"]
 
 
 def test_detect_empty_canvas():
