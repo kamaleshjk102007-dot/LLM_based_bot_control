@@ -100,6 +100,8 @@ class WebotsRobotAdapter(RobotAdapter):
         # Cartesian verification advances the simulation repeatedly. Allow each
         # task its own bounded response window while retaining a short connect timeout.
         response_timeout = max(self.client.timeout, 10.0 * len(tasks))
+        if any(task.get("distance", 0) > 10 and task.get("unit") in ("mm", "millimeters") for task in tasks):
+            response_timeout = max(response_timeout, 25.0 * len(tasks))
         response = self.client.request(
             {"type": "execute", "tasks": tasks},
             response_timeout=response_timeout,

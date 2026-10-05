@@ -69,8 +69,15 @@ class TargetSelector:
       2+ matches -> AMBIGUOUS (Never randomly pick!)
     """
 
-    def __init__(self, min_confidence: float = 0.60):
+    def __init__(
+        self,
+        min_confidence: float = 0.60,
+        disambiguation_strategy: str = "strict",
+        target_index: int = 0,
+    ):
         self.min_confidence = min_confidence
+        self.disambiguation_strategy = disambiguation_strategy
+        self.target_index = target_index
 
     def select(
         self,
@@ -102,11 +109,41 @@ class TargetSelector:
             )
 
         if len(confident_matches) > 1:
-            return (
-                None,
-                TargetStatus.AMBIGUOUS,
-                f"Multiple ({len(confident_matches)}) '{requested_class}' detected without disambiguation rule.",
-            )
+            sorted_by_x = sorted(confident_matches, key=lambda d: d.center.x)
+            if self.disambiguation_strategy in ("index", "leftmost"):
+                idx = self.target_index % len(sorted_by_x)
+                chosen = sorted_by_x[idx]
+                return (
+                    chosen,
+                    TargetStatus.VALID,
+                    f"Selected cube #{idx + 1} of {len(sorted_by_x)} (left-to-right).",
+                )
+            elif self.disambiguation_strategy == "rightmost":
+                chosen = sorted_by_x[-1]
+                return (
+                    chosen,
+                    TargetStatus.VALID,
+                    f"Selected rightmost '{requested_class}' from {len(confident_matches)} candidates.",
+                )
+            elif self.disambiguation_strategy == "highest_confidence":
+                chosen = max(confident_matches, key=lambda d: d.confidence)
+                return (
+                    chosen,
+                    TargetStatus.VALID,
+                    f"Selected highest-confidence '{requested_class}' from {len(confident_matches)} candidates.",
+                )
+            elif self.disambiguation_strategy == "first":
+                return (
+                    confident_matches[0],
+                    TargetStatus.VALID,
+                    f"Selected first '{requested_class}' from {len(confident_matches)} candidates.",
+                )
+            else:
+                return (
+                    None,
+                    TargetStatus.AMBIGUOUS,
+                    f"Multiple ({len(confident_matches)}) '{requested_class}' detected without disambiguation rule.",
+                )
 
         # Exactly 1 confident match
         return confident_matches[0], TargetStatus.VALID, f"Unique '{requested_class}' identified."

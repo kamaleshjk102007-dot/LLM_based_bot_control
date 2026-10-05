@@ -54,6 +54,10 @@ class FakeClient:
         self.calls.append(("gripper", on))
         return "ok"
 
+    def move(self, position):
+        self.calls.append(("move", position.as_dict()))
+        return {"verified": True}
+
 
 @pytest.fixture
 def config():
@@ -226,3 +230,22 @@ def test_multi_step_is_prevalidated_before_hardware(config):
     with pytest.raises(RobotAdapterError, match="not supported"):
         adapter.execute(mixed)
     assert client.calls == []
+
+
+def test_configured_safe_test_position_move(config):
+    config_with_pos = DobotConfig(
+        mode=OperationMode.REAL,
+        calibration_max_step_mm=5,
+        test_position=DobotPosition(100, 0, 50, 0),
+        safety_limits=config.safety_limits,
+    )
+    client = FakeClient()
+    adapter = DobotMagicianLiteAdapter(
+        build_dobot_robot(), client, config_with_pos, confirm=lambda *_: True
+    )
+    cmd = command("MOVE", position="configured_safe_test_position")
+    assert adapter.validate(cmd) is True
+    result = adapter.execute(cmd)
+    assert len(result) == 1
+    assert client.calls[0] == ("move", {"x": 100.0, "y": 0.0, "z": 50.0, "r": 0.0})
+

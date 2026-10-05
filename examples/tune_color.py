@@ -28,9 +28,20 @@ def main():
     print("  [Q] - Quit")
     print("=" * 60)
 
-    cap = cv2.VideoCapture(0)
+    cam_idx = 0
+    backend = cv2.CAP_DSHOW if sys.platform.startswith("win") else cv2.CAP_ANY
+    if len(sys.argv) > 1 and sys.argv[1].isdigit():
+        cam_idx = int(sys.argv[1])
+    else:
+        test_cap = cv2.VideoCapture(1, backend)
+        if test_cap.isOpened():
+            test_cap.release()
+            cam_idx = 1
+
+    print(f"  Using camera index: {cam_idx}")
+    cap = cv2.VideoCapture(cam_idx, backend)
     if not cap.isOpened():
-        print("  [ERROR] Cannot open webcam (index 0).")
+        print(f"  [ERROR] Cannot open camera (index {cam_idx}).")
         return
 
     cv2.namedWindow("HSV Tuner", cv2.WINDOW_NORMAL)

@@ -1,0 +1,94 @@
+{
+  "blocks": [
+    {
+      "id": "red_block_1",
+      "color": "red",
+      "type": "block",
+      "x": 153.7,
+      "y": -11.5,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "red_block_2",
+      "color": "red",
+      "type": "block",
+      "x": 160.9,
+      "y": 93.0,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "red_block_3",
+      "color": "red",
+      "type": "block",
+      "x": 156.4,
+      "y": 176.9,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "red_block_4",
+      "color": "red",
+      "type": "block",
+      "x": 160.9,
+      "y": -69.2,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "red_block_5",
+      "color": "red",
+      "type": "block",
+      "x": 179.0,
+      "y": 121.3,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "red_block_6",
+      "color": "red",
+      "type": "block",
+      "x": 171.4,
+      "y": 152.5,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "red_block_7",
+      "color": "red",
+      "type": "block",
+      "x": 189.4,
+      "y": 36.3,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "red_block_8",
+      "color": "red",
+      "type": "block",
+      "x": 245.1,
+      "y": 35.4,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "red_block_9",
+      "color": "red",
+      "type": "block",
+      "x": 281.5,
+      "y": 61.5,
+      "z": -25.0,
+      "r": 0.0
+    },
+    {
+      "id": "yellow_block_10",
+      "color": "yellow",
+      "type": "block",
+      "x": 273.2,
+      "y": -119.3,
+      "z": -25.0,
+      "r": 0.0
+    }
+  ]
+}

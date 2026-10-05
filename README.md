@@ -1,279 +1,165 @@
-# Universal LLM Robot Control Platform — Phase 4
+# 👁️ Member 3 — Vision + Sensors + Perception System
+**Robot 1 — DOBOT Magician Lite**
 
-Phase 4 adds an isolated Webots visual-simulation adapter while preserving the
-fail-closed DOBOT Magician Lite adapter from Phase 3.
+Member 3 owns the vision and perception pipeline. The primary mission is to convert raw camera imagery into a verified, stable, and calibrated **`RobotTarget`** in the `dobot_base` coordinate frame for **Member 4 (Motion Planning)**.
 
-> **Simulation is always the default. Real mode is explicit, requires local
-> DobotLink plus a connected robot, and asks for operator confirmation before
-> HOME, MOVE, GRIP, or RELEASE.**
+---
 
-## Architecture
+## 🎯 Main Responsibility
 
-```text
-Natural language -> Gemini -> Pydantic Universal Command
-                                  |
-                                  v
-                         Universal Gateway
-                    selection / capability / safety
-                         |                 |
-                         v                 v
-                    Mock adapter      DOBOT adapter
-                    (simulation)       (real only)
-                                             |
-                                             v
-                              DobotLink WebSocket RPC :9090
-                                             |
-                                             v
-                                  Magician Lite / Magic Box
-```
+> **Camera / Sensor → Detect Object → Select Target → Homography Calibration → Coordinate Transform → Temporal Stability & Freshness Check → Send RobotTarget to Member 4**
 
-Vendor code is confined to `app/adapters/dobot/`. The universal command,
-registry, selector, safety validator, and generic adapter contract contain no
-DOBOT transport details. Importing the package does not load the SDK or touch
-hardware.
+### ❌ Member 3 Boundaries (What Member 3 must NOT do)
+* **Never control the robot arm**: Do not call `dobot.move_to()` or send motor commands. Member 1 and Member 4 own robot kinematics and motor execution.
+* **Never send raw pixel coordinates**: Member 4 must receive metric physical coordinates $(X, Y, Z)$ in millimeters, strictly in the `dobot_base` frame.
+* **Never guess between multiple ambiguous objects**: If multiple matching objects are found, return `AMBIGUOUS`.
+* **Never fake physical $Z$**: A 2D camera cannot measure metric height directly; $Z$ is computed deterministically from the calibrated tabletop plane $Z_{table}$ and known physical object heights.
 
-## Phase 3 support boundary
+---
 
-The registered real robot is `dobot_001`, initially in `UNKNOWN` state.
-Only a successful lifecycle transition makes it eligible:
+## 🏗️ Architecture Pipeline
 
 ```text
-DISCONNECTED -> CONNECTING -> CONNECTED -> READY
-                       failure -> ERROR
+                 USER TASK (Member 2)
+                           │
+                           ▼
+                    Requested Object
+                           │
+                           ▼
+                     CAMERA SOURCE
+          (MockCamera / USBCamera / WebotsCamera)
+                           │
+                           ▼
+                         FRAME
+                           │
+                           ▼
+                    OBJECT DETECTOR
+             (ColorShapeDetector / YOLODetector)
+                           │
+                           ▼
+                       DETECTIONS
+                           │
+                           ▼
+                    TARGET SELECTOR
+           ┌───────────────┴───────────────┐
+           │                               │
+        Unique                         Ambiguous
+           │                               │
+           ▼                               ▼
+      CALIBRATION                      [REJECT]
+   (Planar Homography)            Status: AMBIGUOUS
+           │
+           ▼
+  COORDINATE TRANSFORM
+   (dobot_base frame)
+  Z = Z_table + h_object
+           │
+           ▼
+  CONFIDENCE & STABILITY
+(Sliding window variance)
+           │
+           ▼
+      ROBOT TARGET
+    (Status: VALID)
+           │
+           ▼
+   MEMBER 4 CONTRACT
 ```
 
-Supported Phase 3 actions:
+---
 
-- `GET_STATUS`
-- `HOME`
-- `MOVE` to one operator-configured test pose
-- `STOP` using DobotLink's software queue stop
-- `GRIP`
-- `RELEASE`
-
-`PICK` and `PLACE` are intentionally unsupported because they need
-perception, task-space planning, and object-specific safety behavior. Commands
-are fully mapped before the first physical action, so an unsupported step
-rejects the entire multi-step command without partial execution.
-
-The Phase 3 STOP is a **software stop**, not a certified emergency stop.
-Always keep the manufacturer's emergency/safety controls available.
-
-## Verified DOBOT interface
-
-The implementation targets the interface verified from DobotLab 2.4.0 and its
-bundled DobotLink/DobotRPC installation:
-
-- DobotLink WebSocket RPC at `127.0.0.1:9090`
-- Installed DobotRPC 4.8.5 source was used to verify the JSON-RPC envelope and module naming
-- Direct `dobotlink.MagicianLite.*` JSON-RPC over the supported DobotLink WebSocket
-- `SearchDobot`, `ConnectDobot`, `DisconnectDobot`, `GetPose`
-- `SetHOMECmd`, `SetPTPCmd`, `QueuedCmdStop`
-- `GetEndEffectorType`, `SetEndEffectorGripper`
-
-Official references:
-
-- [DOBOT DobotLink repository and architecture](https://github.com/Dobot-Arm/DobotLink)
-- [Official Magician Lite DobotLab user manual (PDF)](https://download.dobot.cc/product-manual/magician-lite/cn/Dobot%20Magician%20Lite%20%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C%EF%BC%88DobotLab%E7%89%88%EF%BC%89.pdf)
-
-No serial protocol, USB packet format, or undocumented command was guessed.
-
-## Requirements
-
-Base/simulation:
-
-- Python 3.11+
-- Gemini API key
-- `pip install -r requirements.txt`
-
-Real Magician Lite:
-
-- Windows computer physically connected to the Magician Lite/Magic Box
-- DobotLab/DobotLink installed and running
-- Modern synchronous WebSocket transport: `pip install -r requirements-hardware.txt`
-
-The incompatible legacy DobotRPC dependency is not installed. Real mode uses the verified DobotLink JSON-RPC calls directly; simulation never opens a hardware connection.
-
-## Configuration
-
-Copy `.env.example` to the uncommitted `.env` and set
-`GEMINI_API_KEY`. The real `.env` is ignored by Git. The current stable default is
-`GEMINI_MODEL=gemini-3.7-flash`; an older model ID may return HTTP 404.
-
-Connection settings:
+## 📦 Project Structure
 
 ```text
-DOBOTLINK_HOST=127.0.0.1
-DOBOTLINK_PORT=9090
-DOBOT_PORT_NAME=                 # optional when exactly one device is detected
-DOBOT_CONNECT_TIMEOUT_SECONDS=10
-DOBOT_COMMAND_TIMEOUT_MS=30000
-DOBOT_MAX_RETRIES=2
-DOBOT_PTP_MODE=1
-DOBOT_VERIFY_TIMEOUT_SECONDS=5
-DOBOT_VERIFY_START_DELAY_SECONDS=0.5
-DOBOT_POSITION_TOLERANCE_MM=1
-DOBOT_ROTATION_TOLERANCE_DEGREES=1
-DOBOT_VERIFY_SAMPLES=3
+member 3/
+├── config/
+│   ├── calibration_default.json   # Default tabletop homography matrix
+│   └── calibration.json           # User-calibrated matrix
+├── vision/
+│   ├── __init__.py                # Package exports
+│   ├── models.py                  # Pydantic schemas (Point2D, Point3D, BoundingBox, Frame, RobotTarget)
+│   ├── camera.py                  # BaseCamera, USBCamera, MockCamera, FileCamera, WebotsCamera
+│   ├── detector.py                # BaseDetector, ColorShapeDetector, YOLODetector
+│   ├── calibration.py             # TabletopCalibration & ValidationMetrics
+│   ├── coordinate_transform.py    # CoordinateTransformer (dobot_base frame & reachability check)
+│   ├── target.py                  # TargetSelector, TemporalStabilityTracker, TargetFreshnessChecker
+│   ├── visualization.py           # VisionVisualizer (HUD overlay & debug graphics)
+│   └── pipeline.py                # VisionPipeline (Full end-to-end orchestrator)
+├── tests/
+│   ├── test_models.py             # Data model immutability and schema checks
+│   ├── test_camera.py             # Camera open/read/release lifecycle
+│   ├── test_detector.py           # Color detector accuracy, noise filtering
+│   ├── test_calibration.py        # Homography calculation and hold-out validation
+│   ├── test_coordinate_transform.py # Millimeter mapping and workspace reachability
+│   ├── test_target.py             # Target selection, ambiguity, and freshness
+│   ├── test_detection_stability.py  # Temporal variance filter and jump rejection
+│   └── test_pipeline.py           # Full integration test
+├── examples/
+│   ├── run_demo.py                # Standalone simulation demo with HUD output
+│   └── calibrate_tabletop.py      # Calibration script with hold-out error report
+├── requirements.txt
+└── README.md
 ```
 
-Real MOVE is disabled until all values below are present:
+---
 
-```text
-DOBOT_TEST_X=
-DOBOT_TEST_Y=
-DOBOT_TEST_Z=
-DOBOT_TEST_R=
-DOBOT_MIN_X=
-DOBOT_MAX_X=
-DOBOT_MIN_Y=
-DOBOT_MAX_Y=
-DOBOT_MIN_Z=
-DOBOT_MAX_Z=
-DOBOT_MIN_R=
-DOBOT_MAX_R=
+## 🤝 Contract with Member 4 (`RobotTarget`)
+
+Downstream Member 4 receives a standard JSON payload:
+
+```json
+{
+  "target_id": "tgt_b576a545",
+  "class_name": "red_block",
+  "position": {
+    "x": 239.8,
+    "y": 0.0,
+    "z": -25.0
+  },
+  "confidence": 0.98,
+  "timestamp": "2026-09-09T05:18:23.177784+00:00",
+  "coordinate_frame": "dobot_base",
+  "valid": true,
+  "status": "VALID",
+  "stability_score": 0.87,
+  "source_detection_id": "det_5154ae60",
+  "message": "Valid target verified at X:239.8, Y:0.0, Z:-25.0 mm"
+}
 ```
 
-Coordinates are never accepted from an LLM for physical movement in Phase 3. The adapter uses only this preconfigured pose and rejects it unless every axis is within the explicit bounds. After MOVE, it requires three consecutive GetPose samples within the configured tolerances. A mismatch triggers software queue stop and clear, marks the client ERROR, and reports before, target, and final poses.
+### Possible Target Statuses
+| Status | Meaning | Valid | Member 4 Action |
+|---|---|---|---|
+| `VALID` | Object uniquely identified, calibrated, and temporally stable | `true` | Proceed with motion planning |
+| `AMBIGUOUS` | 2+ matching objects seen without disambiguation rule | `false` | Request clarification from Member 2 |
+| `NOT_FOUND` | Target class is not visible in frame | `false` | Halt or initiate camera search sweep |
+| `LOW_CONFIDENCE` | Candidate seen but confidence score is below threshold | `false` | Reject |
+| `UNSTABLE` | Position jumping across frames (jitter) | `false` | Wait for tracking to settle |
+| `OUT_OF_REACH` | Coordinates are outside Dobot Magician Lite reach envelope | `false` | Abort motion |
+| `STALE` | Target generated too long ago ($> 1.5$s) | `false` | Request fresh frame |
 
-## Run
+---
 
-Safe default simulation:
+## 🚀 Quickstart & Verification
 
+### 1. Run Unit Tests (100% Passing)
 ```bash
-python -m app.main
+python -m pytest tests/ -v
 ```
 
-Explicit real gateway:
-
+### 2. Run Live Simulation Demo
 ```bash
-python -m app.main --mode real
+python examples/run_demo.py
 ```
+This will:
+- Simulate camera frames with colored blocks.
+- Perform multi-frame temporal stabilization.
+- Output the verified `RobotTarget` JSON to `output/member4_target.json`.
+- Test ambiguity rejection when two red blocks appear.
+- Save debug HUD visualizations to `output/vision_hud_demo.png` and `output/vision_hud_ambiguous.png`.
 
-Focused real diagnostics:
-
+### 3. Calibrate Physical Camera / Webots
 ```bash
-python -m app.main --mode real --dobot-test connection
-python -m app.main --mode real --dobot-test status
-python -m app.main --mode real --dobot-test home
-python -m app.main --mode real --dobot-test move
-python -m app.main --mode real --dobot-test grip
-python -m app.main --mode real --dobot-test release
+python examples/calibrate_tabletop.py --output config/calibration.json
 ```
-
-HOME, MOVE, GRIP, and RELEASE print the exact prepared operation and execute
-only when the supervising operator types `YES`. Connection and status tests
-do not move the robot. Simulation never opens a WebSocket or contacts DobotLink.
-
-## Run simulation on GitHub
-
-GitHub-hosted runners can test the language, gateway, mapping, lifecycle, and
-safety logic, but they cannot reach a USB robot/DobotLink running on your PC.
-
-1. Add `GEMINI_API_KEY` under **Settings → Secrets and variables → Actions**.
-2. Open **Actions → Run Universal Robot Command**.
-3. Select **Run workflow** and enter an instruction.
-4. Inspect **Convert and validate instruction**.
-
-Use a self-hosted runner physically attached to the robot only if you knowingly
-want GitHub Actions to access that hardware. Never put real movement
-confirmation flags into an ordinary hosted workflow.
-
-## Testing
-
-Unit suite (no Gemini, DobotLink, or hardware):
-
-```bash
-pytest -m "not live and not hardware"
-```
-
-The DOBOT unit tests inject fake RPC modules and verify lifecycle transitions,
-bounded retries, exact method mapping, simulation isolation, confirmations,
-software STOP labeling, safety limits, unsupported actions, multi-step fail-closed behavior, verified final-pose success, and mismatch stop/clear behavior.
-
-Live Gemini remains opt-in:
-
-```bash
-RUN_LIVE_GEMINI_TESTS=1 pytest -m live
-```
-
-Physical connection/status integration is separately marked and requires two
-deliberate environment flags after clearing the robot workspace:
-
-```bash
-RUN_DOBOT_HARDWARE_TESTS=1 DOBOT_HARDWARE_CONFIRMED=YES \
-  pytest -m hardware -s
-```
-
-This test does not issue HOME, MOVE, GRIP, or RELEASE. Use the interactive CLI
-for those actions so each operation receives an immediate human confirmation.
-
-## Safety limitations
-
-This software provides logical validation and configured bounds only. It is not
-a safety-rated controller and does not implement collision avoidance,
-trajectory planning, vision, payload checks, speed/acceleration validation, or
-workspace sensing. The operator remains responsible for the physical workspace,
-tooling, fixtures, people nearby, and manufacturer procedures.
-
-
-## Webots visual simulation
-
-The repository includes a simplified, uncalibrated Magician Lite-style arm for
-safe visual testing. It is a software model, not a certified digital twin, and
-it never imports DOBOT code or connects to DobotLink.
-
-1. Install Webots R2025a or newer from the official Webots download page.
-2. Open `simulation/webots/worlds/magician_lite.wbt` in Webots.
-3. Press the Webots **Play** button. The controller listens only on
-   `127.0.0.1:8765`.
-4. In a separate PowerShell window, from the repository root, run:
-
-```powershell
-python -m app.main --mode webots
-```
-
-5. At `Enter robot instruction:`, try:
-
-```text
-Move forward 20 centimeters, then get the robot status.
-```
-
-Expected CLI indicators are `Adapter: webots`, `Execution: SIMULATED`, and
-`Gateway Status: READY`. The virtual arm should animate in Webots.
-
-Supported visual actions are `MOVE` with a direction, `ROTATE`, `HOME`,
-`STOP`, and `GET_STATUS`. The directional model accepts forward, backward,
-left, right, up, and down. It intentionally does not claim millimetre-accurate
-kinematics or collision/safety validation.
-
-The three modes are separate:
-
-- `python -m app.main` — text-only mock simulation
-- `python -m app.main --mode webots` — local visual simulation
-- `python -m app.main --mode real` — physical DOBOT; do not use for simulator tests
-
-
-## Guarded physical calibration
-
-Ordinary LLM MOVE remains separate. Calibration is an explicit diagnostic that
-uses the live pose, permits only one Cartesian axis, enforces a hard maximum of
-5 mm, applies 5% PTP velocity/acceleration ratios, requires an exact `YES`,
-and reuses final-pose verification plus software stop/queue clear on failure.
-
-Example (physical movement):
-
-```powershell
-python -m app.main --mode real --dobot-calibrate-axis z --dobot-calibrate-mm 5
-```
-
-Run only one supervised axis test at a time. Review the printed before and target
-poses before confirming. A changed pose after confirmation cancels the command.
-
-
-### Command-submission timeout behavior
-
-A SetPTPCmd exception or timeout is treated as an unknown physical outcome. The
-client immediately attempts software queue stop and clear, enters ERROR state,
-and reports both the original failure and any cleanup failure. Operators must
-still use physical emergency controls if motion continues.
+Calculates homography matrix from $N \ge 4$ reference point pairs and reports Mean Squared / Euclidean error on held-out test points.
