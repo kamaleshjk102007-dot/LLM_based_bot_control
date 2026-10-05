@@ -398,6 +398,9 @@ def main():
             # --- Right Arrow / Up Arrow / 'D' / '>' / Tab : Next cube ---
             elif key_ex in (2555904, 2490368, 65363, 65362, 39, 38) or key in (ord('d'), ord('D'), ord('.'), ord('>'), 9):
                 if len(class_dets) > 1:
+                    # Arrow selection is an explicit user choice, so it may
+                    # safely change the default strict policy to indexed mode.
+                    selector.disambiguation_strategy = "index"
                     selector.target_index = (selector.target_index + 1) % len(class_dets)
                     tracker.reset()
                     print(f"  [->] Switched to cube #{selector.target_index + 1} of {len(class_dets)} (left-to-right)")
@@ -405,6 +408,8 @@ def main():
             # --- Left Arrow / Down Arrow / 'A' / '<' : Previous cube ---
             elif key_ex in (2424832, 2621440, 65361, 65364, 37, 40) or key in (ord('a'), ord('A'), ord(','), ord('<')):
                 if len(class_dets) > 1:
+                    # See the matching right-arrow handler above.
+                    selector.disambiguation_strategy = "index"
                     selector.target_index = (selector.target_index - 1) % len(class_dets)
                     tracker.reset()
                     print(f"  [<-] Switched to cube #{selector.target_index + 1} of {len(class_dets)} (left-to-right)")
