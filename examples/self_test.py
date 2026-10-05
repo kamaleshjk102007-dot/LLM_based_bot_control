@@ -15,6 +15,7 @@ from vision import (
     ColorShapeDetector,
     TabletopCalibration,
     CoordinateTransformer,
+    ZEstimator,
     TargetSelector,
     TemporalStabilityTracker,
 )
@@ -42,7 +43,7 @@ def print_target(target):
         print(f"  [!!]  REASON  : {target.message}")
 
 
-def run_single_block():
+def test_1_single_block():
     print(SEPARATOR)
     print("  TEST 1 -- Single Red Block (should become VALID after 3 frames)")
     print(SEPARATOR)
@@ -62,7 +63,7 @@ def run_single_block():
     pause()
 
 
-def run_choose_color():
+def test_2_choose_color():
     print(SEPARATOR)
     print("  TEST 2 -- You Pick The Block Color")
     print(SEPARATOR)
@@ -95,7 +96,7 @@ def run_choose_color():
     pause()
 
 
-def run_ambiguous():
+def test_3_ambiguous():
     print(SEPARATOR)
     print("  TEST 3 -- Ambiguity: 2 Red Blocks (should REJECT)")
     print(SEPARATOR)
@@ -115,7 +116,7 @@ def run_ambiguous():
     pause()
 
 
-def run_not_found():
+def test_4_not_found():
     print(SEPARATOR)
     print("  TEST 4 -- Object Not Found (only blue on table, asking for red)")
     print(SEPARATOR)
@@ -133,7 +134,7 @@ def run_not_found():
     pause()
 
 
-def run_low_confidence():
+def test_5_low_confidence():
     print(SEPARATOR)
     print("  TEST 5 -- Low Confidence (block too tiny -- rejected)")
     print(SEPARATOR)
@@ -152,7 +153,7 @@ def run_low_confidence():
     pause()
 
 
-def run_stability_jitter():
+def test_6_stability_jitter():
     print(SEPARATOR)
     print("  TEST 6 -- Jitter / Unstable Detection")
     print(SEPARATOR)
@@ -173,7 +174,7 @@ def run_stability_jitter():
     pause()
 
 
-def run_calibration():
+def test_7_calibration():
     print(SEPARATOR)
     print("  TEST 7 -- Calibration: You Enter Pixel, See Robot mm Coordinates")
     print(SEPARATOR)
@@ -216,7 +217,7 @@ def run_calibration():
     pause()
 
 
-def run_multi_scene():
+def test_8_multi_scene():
     print(SEPARATOR)
     print("  TEST 8 -- Build Your Own Scene and Test It")
     print(SEPARATOR)
@@ -261,16 +262,69 @@ def run_multi_scene():
     pause()
 
 
+def test_9_dynamic_z():
+    print(SEPARATOR)
+    print("  TEST 9 -- Dynamic Z from Bounding Box Apparent Size")
+    print(SEPARATOR)
+    print("  The ZEstimator uses perspective projection:")
+    print("    block_z = cam_height - (cam_height - table_z) * (ref_px / apparent_px)")
+    print("  Bigger bounding box  => block is CLOSER to camera => HIGHER Z")
+    print("  Smaller bounding box => block is FARTHER away      => LOWER Z")
+    print()
+
+    # Camera at 500mm above base, table at -50mm, reference block = 60px side on table
+    z_est = ZEstimator(
+        camera_height_mm=500.0,
+        table_z_mm=-50.0,
+        ref_bbox_side_px=60.0,   # block flat on table produces ~60x60 px bounding box
+        alpha=1.0,                # no smoothing for this demo
+    )
+
+    calib = TabletopCalibration.create_default()
+    transformer = CoordinateTransformer(
+        calibration=calib,
+        table_z_mm=-50.0,
+        z_estimator=z_est,
+    )
+
+    scenarios = [
+        ("Block on table       (60x60 px)", BoundingBox(x1=290, y1=220, x2=350, y2=280)),
+        ("Block elevated ~25mm (70x70 px)", BoundingBox(x1=285, y1=215, x2=355, y2=285)),
+        ("Block elevated ~50mm (80x80 px)", BoundingBox(x1=280, y1=210, x2=360, y2=290)),
+        ("Block far/small      (45x45 px)", BoundingBox(x1=298, y1=228, x2=343, y2=273)),
+    ]
+
+    print(f"  {'Scenario':<38} {'BBox px':>8}  {'Z (mm)':>9}  {'Z-mode':>8}")
+    print("  " + "-" * 70)
+    for label, bbox in scenarios:
+        z_est.reset()   # fresh smoother each scenario for clean comparison
+        pixel = Point2D(x=float((bbox.x1 + bbox.x2) / 2), y=float((bbox.y1 + bbox.y2) / 2))
+        point_3d, reachable, reason, z_mode = transformer.pixel_to_robot_3d(
+            pixel=pixel,
+            class_name="red_block",
+            bbox=bbox,
+        )
+        avg_side = (bbox.width + bbox.height) / 2.0
+        reach_str = "[OK]" if reachable else "[!!]"
+        print(f"  {label:<38} {avg_side:>8.1f}  {point_3d.z:>+9.2f}  {z_mode:>8}  {reach_str}")
+
+    print()
+    print("  Notice Z increases as bounding box grows (block moves up toward camera).")
+    print("  The fixed-physics fallback always gives Z = table_z + block_height = -25.0 mm.")
+    pause()
+
+
 def main_menu():
     tests = {
-        "1": ("Single red block -- should go VALID after 3 frames",     run_single_block),
-        "2": ("You choose which block is on table",                      run_choose_color),
-        "3": ("Two red blocks -- AMBIGUOUS rejection",                   run_ambiguous),
-        "4": ("Wrong object requested -- NOT FOUND",                     run_not_found),
-        "5": ("Too small block -- LOW CONFIDENCE / NOT DETECTED",        run_low_confidence),
-        "6": ("Jitter noise -- UNSTABLE result",                         run_stability_jitter),
-        "7": ("Enter pixel coordinate, see robot mm output",             run_calibration),
-        "8": ("Build your own scene and test it",                        run_multi_scene),
+        "1": ("Single red block -- should go VALID after 3 frames",     test_1_single_block),
+        "2": ("You choose which block is on table",                      test_2_choose_color),
+        "3": ("Two red blocks -- AMBIGUOUS rejection",                   test_3_ambiguous),
+        "4": ("Wrong object requested -- NOT FOUND",                     test_4_not_found),
+        "5": ("Too small block -- LOW CONFIDENCE / NOT DETECTED",        test_5_low_confidence),
+        "6": ("Jitter noise -- UNSTABLE result",                         test_6_stability_jitter),
+        "7": ("Enter pixel coordinate, see robot mm output",             test_7_calibration),
+        "8": ("Build your own scene and test it",                        test_8_multi_scene),
+        "9": ("Dynamic Z from bounding box size (perspective projection)", test_9_dynamic_z),
         "q": ("Quit",                                                    None),
     }
 

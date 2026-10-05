@@ -9,6 +9,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from google.genai import types
+
 from app.config.settings import Settings
 from app.llm.gemini_client import (
     GeminiCommandClient,
@@ -29,6 +31,14 @@ def test_provider_schema_is_derived_and_simplified():
     assert "default" not in serialized
     assert "additionalProperties" not in serialized
     assert "'type': 'null'" not in serialized
+
+
+def test_schema_valid_for_genai_generate_content_config():
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=gemini_response_json_schema(),
+    )
+    assert config.response_schema is not None
 
 
 def test_mocked_structured_response_is_validated():

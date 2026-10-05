@@ -5,7 +5,7 @@ For Robot 1 — DOBOT Magician Lite
 
 from .calibration import TabletopCalibration, ValidationMetrics
 from .camera import BaseCamera, FileCamera, MockCamera, USBCamera, WebotsCamera, WebotsTcpCamera
-from .coordinate_transform import CoordinateTransformer
+from .coordinate_transform import CoordinateTransformer, ZEstimator
 from .detector import BaseDetector, ColorShapeDetector, YOLODetector
 from .models import (
     BoundingBox,
@@ -53,6 +53,7 @@ __all__ = [
     "TabletopCalibration",
     "ValidationMetrics",
     "CoordinateTransformer",
+    "ZEstimator",
     # Target Selection & Stability
     "TargetSelector",
     "TemporalStabilityTracker",

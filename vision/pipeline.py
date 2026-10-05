@@ -12,7 +12,7 @@ import numpy as np
 
 from .calibration import TabletopCalibration
 from .camera import BaseCamera, MockCamera
-from .coordinate_transform import CoordinateTransformer
+from .coordinate_transform import CoordinateTransformer, ZEstimator
 from .detector import BaseDetector, ColorShapeDetector
 from .models import Detection, Frame, RobotTarget, TargetStatus
 from .target import (
@@ -40,6 +40,8 @@ class VisionPipeline:
         stability_samples: int = 3,
         stability_window: int = 4,
         max_std_dev_mm: float = 3.5,
+        disambiguation_strategy: str = "strict",
+        z_estimator: Optional[ZEstimator] = None,
     ):
         # 1. Camera
         self.camera: BaseCamera = camera or MockCamera()
@@ -52,10 +54,14 @@ class VisionPipeline:
         self.transformer: CoordinateTransformer = transformer or CoordinateTransformer(
             calibration=self.calibration,
             table_z_mm=-50.0,
+            z_estimator=z_estimator,
         )
 
         # 4. Target selection & verification modules
-        self.selector = TargetSelector(min_confidence=min_confidence)
+        self.selector = TargetSelector(
+            min_confidence=min_confidence,
+            disambiguation_strategy=disambiguation_strategy,
+        )
         self.stability_tracker = TemporalStabilityTracker(
             window_size=stability_window,
             min_samples=stability_samples,
@@ -108,16 +114,17 @@ class VisionPipeline:
             return target, annotated_image
 
         # Step 3: Calibration & Coordinate Transform (Pixel -> dobot_base X, Y, Z in mm)
-        point_3d, coordinate_valid, coordinate_msg = self.transformer.pixel_to_robot_3d(
+        point_3d, is_reachable, reach_msg, z_mode = self.transformer.pixel_to_robot_3d(
             pixel=candidate_det.center,
             class_name=requested_class,
+            bbox=candidate_det.bbox,
         )
 
-        if not coordinate_valid:
+        if not is_reachable:
             target = create_invalid_robot_target(
                 class_name=requested_class,
                 status=TargetStatus.OUT_OF_REACH,
-                message=coordinate_msg or "Target outside calibrated camera coverage",
+                message=reach_msg or "Target out of reach",
                 position=point_3d,
                 confidence=candidate_det.confidence,
                 source_detection_id=candidate_det.detection_id,
@@ -159,7 +166,7 @@ class VisionPipeline:
             status=TargetStatus.VALID,
             stability_score=stab_score,
             source_detection_id=candidate_det.detection_id,
-            message=f"Valid target verified at X:{filtered_point.x:.1f}, Y:{filtered_point.y:.1f}, Z:{filtered_point.z:.1f} mm",
+            message=f"Valid target verified at X:{filtered_point.x:.1f}, Y:{filtered_point.y:.1f}, Z:{filtered_point.z:.1f} mm [Z-mode: {z_mode}]",
         )
 
         self.last_target = target
