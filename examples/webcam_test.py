@@ -53,6 +53,19 @@ def main():
         action="store_true",
         help="Use Windows DirectShow; recommended for the second USB camera.",
     )
+    parser.add_argument(
+        "--selection",
+        choices=("strict", "leftmost", "rightmost", "highest_confidence", "index"),
+        default="strict",
+        help=("Rule for two or more matching blocks. 'strict' is the safe default "
+              "and reports AMBIGUOUS instead of choosing an object."),
+    )
+    parser.add_argument(
+        "--target-index",
+        type=int,
+        default=0,
+        help="Zero-based left-to-right object index used with --selection index.",
+    )
     args = parser.parse_args()
 
     print(SEPARATOR)
@@ -91,7 +104,11 @@ def main():
     # Load calibration
     calib = TabletopCalibration.create_default()
     transformer = CoordinateTransformer(calibration=calib, table_z_mm=-50.0)
-    selector  = TargetSelector(min_confidence=0.60)
+    selector = TargetSelector(
+        min_confidence=0.60,
+        disambiguation_strategy=args.selection,
+        target_index=args.target_index,
+    )
     tracker   = TemporalStabilityTracker(window_size=4, min_samples=3, max_std_dev_mm=5.0)
 
     os.makedirs("output", exist_ok=True)
@@ -102,6 +119,7 @@ def main():
     fps_time = time.time()
 
     print(f"  Currently looking for: {requested_class}  (press 1/2/3/4 to change)")
+    print(f"  Multi-object selection: {args.selection}")
     print(SEPARATOR)
 
     while True:
