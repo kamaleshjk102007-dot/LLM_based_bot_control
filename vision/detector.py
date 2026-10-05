@@ -37,7 +37,9 @@ class ColorShapeDetector(BaseDetector):
             ((165, 60, 50), (180, 255, 255)),
         ],
         "blue_block": [
-            ((95, 60, 40), (135, 255, 255)),
+            # Includes bright cyan-blue USB-camera blocks while remaining
+            # separated from green, which ends at hue 85.
+            ((90, 100, 60), (135, 255, 255)),
         ],
         "green_block": [
             ((35, 50, 40), (88, 255, 255)),

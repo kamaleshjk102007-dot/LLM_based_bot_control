@@ -109,41 +109,34 @@ class TargetSelector:
             )
 
         if len(confident_matches) > 1:
-            sorted_by_x = sorted(confident_matches, key=lambda d: d.center.x)
+            # A caller may request a deterministic rule for a multi-object
+            # task.  The default remains strict: vision never chooses an
+            # object silently before a motion request.
+            sorted_by_x = sorted(confident_matches, key=lambda detection: detection.center.x)
             if self.disambiguation_strategy in ("index", "leftmost"):
-                idx = self.target_index % len(sorted_by_x)
-                chosen = sorted_by_x[idx]
+                index = self.target_index % len(sorted_by_x)
                 return (
-                    chosen,
+                    sorted_by_x[index],
                     TargetStatus.VALID,
-                    f"Selected cube #{idx + 1} of {len(sorted_by_x)} (left-to-right).",
+                    f"Selected object #{index + 1} of {len(sorted_by_x)} from left to right.",
                 )
-            elif self.disambiguation_strategy == "rightmost":
-                chosen = sorted_by_x[-1]
+            if self.disambiguation_strategy == "rightmost":
                 return (
-                    chosen,
+                    sorted_by_x[-1],
                     TargetStatus.VALID,
-                    f"Selected rightmost '{requested_class}' from {len(confident_matches)} candidates.",
+                    f"Selected rightmost '{requested_class}' from {len(sorted_by_x)} candidates.",
                 )
-            elif self.disambiguation_strategy == "highest_confidence":
-                chosen = max(confident_matches, key=lambda d: d.confidence)
+            if self.disambiguation_strategy == "highest_confidence":
                 return (
-                    chosen,
+                    max(confident_matches, key=lambda detection: detection.confidence),
                     TargetStatus.VALID,
                     f"Selected highest-confidence '{requested_class}' from {len(confident_matches)} candidates.",
                 )
-            elif self.disambiguation_strategy == "first":
-                return (
-                    confident_matches[0],
-                    TargetStatus.VALID,
-                    f"Selected first '{requested_class}' from {len(confident_matches)} candidates.",
-                )
-            else:
-                return (
-                    None,
-                    TargetStatus.AMBIGUOUS,
-                    f"Multiple ({len(confident_matches)}) '{requested_class}' detected without disambiguation rule.",
-                )
+            return (
+                None,
+                TargetStatus.AMBIGUOUS,
+                f"Multiple ({len(confident_matches)}) '{requested_class}' detected without disambiguation rule.",
+            )
 
         # Exactly 1 confident match
         return confident_matches[0], TargetStatus.VALID, f"Unique '{requested_class}' identified."
