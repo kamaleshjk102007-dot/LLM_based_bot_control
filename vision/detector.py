@@ -32,20 +32,20 @@ class ColorShapeDetector(BaseDetector):
     DEFAULT_COLOR_RANGES: Dict[str, List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]]] = {
         "red_block": [
             # Low-hue red
-            ((0, 100, 80), (10, 255, 255)),
+            ((0, 60, 50), (10, 255, 255)),
             # High-hue red wrap-around
-            ((170, 100, 80), (180, 255, 255)),
+            ((165, 60, 50), (180, 255, 255)),
         ],
         "blue_block": [
             # Includes bright cyan-blue USB-camera blocks while remaining
             # separated from green, which ends at hue 85.
-            ((90, 100, 60), (135, 255, 255)),
+            ((90, 60, 40), (135, 255, 255)),
         ],
         "green_block": [
-            ((35, 70, 60), (85, 255, 255)),
+            ((35, 50, 40), (88, 255, 255)),
         ],
         "yellow_block": [
-            ((20, 100, 100), (35, 255, 255)),
+            ((15, 60, 60), (38, 255, 255)),
         ],
     }
 
